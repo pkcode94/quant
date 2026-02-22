@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Quant/Quant.vcxproj" Id="c790b741-7620-46a4-bde6-0203fa93185b" />
+</Solution>
