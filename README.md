@@ -91,8 +91,4 @@ Access: http://localhost:8080
 
 AUTHOR NOTE: THE REASON
 
-This engine was released as an Ecopolitical Deadman's Switch. By making this logic public, the "Information Asymmetry" used by institutions to hunt retail is neutralized. When you trade with the laws of density, you aren't "investing"—you are becoming a physical constant in a sea of paper.
-
-"You aren't just giving them a haircut, Pham. You're giving them a helmet."
-
 DISCLAIMER: This software uses uncertainty as a variable. It is a deterministic calculator. Understand the physics or the mass will crush you.
