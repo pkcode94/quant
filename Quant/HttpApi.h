@@ -82,6 +82,8 @@ inline std::string css()
         ".wf-step.active{border-color:#1f6feb;color:#58a6ff;font-weight:bold;}"
         ".wf-step.done{border-color:#238636;color:#3fb950;}"
         ".wf-step.done a::before{content:'\2713  ';}"
+        ".wf-step.locked{border-color:#21262d;color:#30363d;}"
+        ".wf-step.locked a{color:#30363d;pointer-events:none;cursor:default;}"
         ".calc-console{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px 16px;"
         "margin:12px 0;font-family:'Consolas',monospace;font-size:0.78em;color:#8b949e;overflow-x:auto;"
         "white-space:pre-wrap;line-height:1.6;}"
@@ -115,14 +117,19 @@ inline std::string nav()
         "</nav>";
 }
 
-inline std::string workflow(int step)
+inline std::string workflow(int step, bool canHorizons = true, bool canExits = true)
 {
     static const char* labels[] = {"1. Market Entry", "2. Generate Horizons", "3. Exit Strategy"};
     static const char* hrefs[]  = {"/market-entry", "/generate-horizons", "/exit-strategy"};
+    bool available[] = {true, canHorizons, canExits};
     std::string h = "<div class='workflow'>";
     for (int i = 0; i < 3; ++i)
     {
-        const char* cls = (i == step) ? "wf-step active" : (i < step) ? "wf-step done" : "wf-step";
+        const char* cls;
+        if (!available[i])      cls = "wf-step locked";
+        else if (i == step)     cls = "wf-step active";
+        else if (i < step)      cls = "wf-step done";
+        else                    cls = "wf-step";
         h += std::string("<div class='") + cls + "'><a href='" + hrefs[i] + "'>" + labels[i] + "</a></div>";
     }
     return h + "</div>";
@@ -880,7 +887,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         double walBal = db.loadWalletBalance();
-        h << html::workflow(0);
+        { bool canH = db.hasBuyTrades(), canE = db.hasAnyHorizons();
+          h << html::workflow(0, canH, canE); }
         h << "<h1>Market Entry Calculator</h1>"
              "<div class='row'>"
              "<div class='stat'><div class='lbl'>Wallet</div><div class='val'>" << walBal << "</div></div>"
@@ -952,7 +960,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
             TradeDatabase::ParamsRow::from("entry", sym, -1, cur, qty, p, risk));
 
         h << "<h1>Entry Strategy: " << html::esc(sym) << " @ " << std::setprecision(17) << cur << "</h1>";
-        h << html::workflow(0);
+        { bool canH = db.hasBuyTrades(), canE = db.hasAnyHorizons();
+          h << html::workflow(0, canH, canE); }
 
         h << std::fixed << std::setprecision(17);
         h << "<div class='row'>"
@@ -972,24 +981,27 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
 
         // calculation console
         {
-            double lvlEo = MultiHorizonEngine::effectiveOverhead(cur, qty, entryParams);
+            double lvlOh = MultiHorizonEngine::computeOverhead(cur, qty, entryParams);
             std::ostringstream con;
             con << std::fixed << std::setprecision(8);
             con << "<details><summary style='cursor:pointer;color:#58a6ff;font-size:0.85em;margin:8px 0;'>"
                    "&#9654; Calculation Steps</summary><div class='calc-console'>";
             con << html::traceOverhead(cur, qty, entryParams);
+            con << "<span class='hd'>Note</span>"
+                << "Entry levels use <span class='rs'>overhead</span> only (fee coverage).\n"
+                << "Surplus (" << (p.surplusRate * 100) << "%) is applied to Exit TP/SL, not entry spacing.\n";
             con << "<span class='hd'>Position</span>"
                 << "positionDelta = (" << cur << " &times; " << qty << ") / " << p.portfolioPump
                 << " = <span class='vl'>" << posDelta << " (" << (posDelta * 100) << "%)</span>\n"
                 << "availableFunds = <span class='vl'>" << availableFunds << "</span>\n";
-            con << "<span class='hd'>Entry Levels</span>";
+            con << "<span class='hd'>Entry Levels (overhead=" << lvlOh << ")</span>";
             for (const auto& el : levels)
             {
-                double factor = lvlEo * (el.index + 1);
+                double factor = lvlOh * (el.index + 1);
                 con << "\n<span class='vl'>Level " << el.index << "</span>\n"
-                    << "  factor     = " << lvlEo << " &times; " << (el.index + 1) << " = " << factor << "\n"
+                    << "  factor     = " << lvlOh << " &times; " << (el.index + 1) << " = " << factor << "\n"
                     << "  entryPrice = " << cur << " &times; (1 - " << factor << ") = <span class='vl'>" << el.entryPrice << "</span>\n"
-                    << "  breakEven  = " << el.entryPrice << " &times; (1 + " << lvlEo << ") = <span class='vl'>" << el.breakEven << "</span>\n"
+                    << "  breakEven  = " << el.entryPrice << " &times; (1 + " << lvlOh << ") = <span class='vl'>" << el.breakEven << "</span>\n"
                     << "  fundFrac   = <span class='vl'>" << (el.fundingFraction * 100) << "%</span>"
                     << "  funding = <span class='vl'>" << el.funding << "</span>"
                     << "  qty = <span class='vl'>" << el.fundingQty << "</span>\n"
@@ -1222,7 +1234,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         std::ostringstream h;
         h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
-        h << html::workflow(2);
+        { bool canH = db.hasBuyTrades(), canE = db.hasAnyHorizons();
+          h << html::workflow(2, canH, canE); }
         h << "<h1>Exit Strategy Calculator</h1>"
              "<form class='card' method='POST' action='/exit-strategy'><h3>Parameters</h3>"
              "<label>Trade IDs</label><input type='text' name='tradeIds' placeholder='1,2,3' required><br>"
@@ -1305,7 +1318,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
             bool anyLevels = false;
             std::vector<std::string> exitSymbols;
 
-            h << html::workflow(2);
+            { bool canH = db.hasBuyTrades(), canE = db.hasAnyHorizons();
+              h << html::workflow(2, canH, canE); }
             h << "<h1>Exit Strategy</h1>";
 
             // confirm form wraps everything — hidden params + per-level fee inputs
@@ -1723,7 +1737,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         std::ostringstream h;
         h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
-        h << html::workflow(1);
+        { bool canH = db.hasBuyTrades(), canE = db.hasAnyHorizons();
+          h << html::workflow(1, canH, canE); }
         h << "<h1>Generate TP/SL Horizons</h1>";
 
         auto trades = db.loadTrades();
@@ -1813,7 +1828,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         }
         else
         {
-            h << html::workflow(1);
+            { bool canH = db.hasBuyTrades(), canE = db.hasAnyHorizons();
+              h << html::workflow(1, canH, canE); }
             h << "<h1>Horizons for " << html::esc(sym) << "</h1>";
             for (auto* bt : buyTrades)
             {
@@ -1891,6 +1907,14 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Price Check (TP/SL vs Market)</h1>";
+
+        if (!db.hasAnyHorizons())
+        {
+            h << "<div class='msg err'>No horizons generated yet. "
+                 "<a href='/generate-horizons' style='color:#58a6ff;'>Generate Horizons</a> first.</div>";
+            res.set_content(html::wrap("Price Check", h.str()), "text/html");
+            return;
+        }
 
         auto trades = db.loadTrades();
         std::vector<std::string> symbols;

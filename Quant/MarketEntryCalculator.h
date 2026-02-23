@@ -5,10 +5,13 @@
 
 // Inverts the TP/SL horizon formula to find entry price levels.
 //
-// effective = overhead + surplusRate
+// Uses overhead only (no surplusRate) — surplus is a profit margin
+// applied at exit/horizon time, not entry spacing.
 //
-//   EntryPrice[i] = currentPrice * (1 - effective * (i + 1))
-//   BreakEven[i]  = entryPrice[i] * (1 + effective)
+//   overhead = computeOverhead(price, qty, params)
+//
+//   EntryPrice[i] = currentPrice * (1 - overhead * (i + 1))
+//   BreakEven[i]  = entryPrice[i] * (1 + overhead)
 //
 // Funding allocation (portfolioPump = total funds):
 //   riskCoefficient in [0, 1]
@@ -37,7 +40,7 @@ public:
                                             const HorizonParams& p,
                                             double riskCoefficient = 0.0)
     {
-        double eo = MultiHorizonEngine::effectiveOverhead(currentPrice, quantity, p);
+        double oh = MultiHorizonEngine::computeOverhead(currentPrice, quantity, p);
 
         int N = p.horizonCount;
         double risk = (riskCoefficient < 0.0) ? 0.0
@@ -60,13 +63,13 @@ public:
 
         for (int i = 0; i < N; ++i)
         {
-            double factor = eo * static_cast<double>(i + 1);
+            double factor = oh * static_cast<double>(i + 1);
 
             EntryLevel el;
             el.index        = i;
             el.costCoverage = static_cast<double>(i + 1);
             el.entryPrice   = currentPrice * (1.0 - factor);
-            el.breakEven    = el.entryPrice * (1.0 + eo);
+            el.breakEven    = el.entryPrice * (1.0 + oh);
 
             el.fundingFraction = (weightSum != 0.0) ? weights[i] / weightSum : 0.0;
             el.funding         = p.portfolioPump * el.fundingFraction;

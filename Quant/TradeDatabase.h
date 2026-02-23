@@ -561,6 +561,18 @@ public:
         return deployed;
     }
 
+    bool hasBuyTrades() const
+    {
+        for (const auto& t : loadTrades())
+            if (t.type == TradeType::Buy) return true;
+        return false;
+    }
+
+    bool hasAnyHorizons() const
+    {
+        return !loadAllHorizons().empty();
+    }
+
     // Execute a sell: create a CoveredSell child, credit wallet with (proceeds - sellFee).
     // Returns the new trade ID, or -1 if validation fails.
     int executeSell(int parentTradeId, double sellPrice, double sellQty, double sellFee = 0.0)
