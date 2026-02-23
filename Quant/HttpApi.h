@@ -76,6 +76,20 @@ inline std::string css()
         ".forms-row{display:flex;gap:10px;flex-wrap:wrap;}"
         ".forms-row form.card{flex:1;min-width:280px;}"
         "p.empty{color:#484f58;font-style:italic;}"
+        ".workflow{display:flex;margin:0 0 16px 0;}"
+        ".wf-step{flex:1;text-align:center;padding:8px 0;font-size:0.82em;border-bottom:3px solid #21262d;color:#484f58;}"
+        ".wf-step a{color:inherit;text-decoration:none;}"
+        ".wf-step.active{border-color:#1f6feb;color:#58a6ff;font-weight:bold;}"
+        ".wf-step.done{border-color:#238636;color:#3fb950;}"
+        ".wf-step.done a::before{content:'\2713  ';}"
+        ".calc-console{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px 16px;"
+        "margin:12px 0;font-family:'Consolas',monospace;font-size:0.78em;color:#8b949e;overflow-x:auto;"
+        "white-space:pre-wrap;line-height:1.6;}"
+        ".calc-console .hd{color:#f0883e;font-weight:bold;display:block;margin:6px 0 2px 0;"
+        "border-bottom:1px solid #21262d;padding-bottom:2px;}"
+        ".calc-console .fm{color:#d2a8ff;}"
+        ".calc-console .vl{color:#f0883e;}"
+        ".calc-console .rs{color:#3fb950;font-weight:bold;}"
         "</style>";
 }
 
@@ -99,6 +113,79 @@ inline std::string nav()
         "<a href='/params-history'>Params</a>"
         "<a href='/wipe' style='color:#f85149;'>Wipe</a>"
         "</nav>";
+}
+
+inline std::string workflow(int step)
+{
+    static const char* labels[] = {"1. Market Entry", "2. Generate Horizons", "3. Exit Strategy"};
+    static const char* hrefs[]  = {"/market-entry", "/generate-horizons", "/exit-strategy"};
+    std::string h = "<div class='workflow'>";
+    for (int i = 0; i < 3; ++i)
+    {
+        const char* cls = (i == step) ? "wf-step active" : (i < step) ? "wf-step done" : "wf-step";
+        h += std::string("<div class='") + cls + "'><a href='" + hrefs[i] + "'>" + labels[i] + "</a></div>";
+    }
+    return h + "</div>";
+}
+
+inline std::string traceOverhead(double price, double quantity,
+                                 const HorizonParams& p)
+{
+    std::ostringstream c;
+    c << std::fixed << std::setprecision(8);
+    double fc  = p.feeSpread * p.feeHedgingCoefficient * p.deltaTime;
+    double num = fc * static_cast<double>(p.symbolCount);
+    double ppq = (quantity > 0.0) ? price / quantity : 0.0;
+    double den = ppq * p.portfolioPump + p.coefficientK;
+    double oh  = (den != 0.0) ? num / den : 0.0;
+    double eo  = oh + p.surplusRate;
+    c << "<span class='hd'>Overhead</span>"
+      << "feeComponent = <span class='fm'>" << p.feeSpread << " &times; " << p.feeHedgingCoefficient << " &times; " << p.deltaTime << "</span>"
+      << " = <span class='vl'>" << fc << "</span>\n"
+      << "numerator    = <span class='fm'>" << fc << " &times; " << p.symbolCount << "</span>"
+      << " = <span class='vl'>" << num << "</span>\n"
+      << "pricePerQty  = <span class='fm'>" << price << " / " << quantity << "</span>"
+      << " = <span class='vl'>" << ppq << "</span>\n"
+      << "denominator  = <span class='fm'>" << ppq << " &times; " << p.portfolioPump << " + " << p.coefficientK << "</span>"
+      << " = <span class='vl'>" << den << "</span>\n"
+      << "<span class='rs'>overhead</span>     = " << num << " / " << den
+      << " = <span class='rs'>" << oh << " (" << (oh * 100.0) << "%)</span>\n"
+      << "<span class='rs'>effective</span>    = " << oh << " + " << p.surplusRate
+      << " = <span class='rs'>" << eo << " (" << (eo * 100.0) << "%)</span>\n";
+    return c.str();
+}
+
+inline std::string traceProfit(const Trade& t, double curPrice,
+                               double buyFees, double sellFees,
+                               const ProfitResult& r)
+{
+    std::ostringstream c;
+    c << std::fixed << std::setprecision(8);
+    bool isBuy = (t.type == TradeType::Buy);
+    c << "<span class='hd'>Profit</span>"
+      << "trade #" << t.tradeId << " " << t.symbol << " " << (isBuy ? "BUY" : "SELL")
+      << "  entry=<span class='vl'>" << t.value << "</span>"
+      << "  qty=<span class='vl'>" << t.quantity << "</span>"
+      << "  current=<span class='vl'>" << curPrice << "</span>\n\n";
+    if (isBuy)
+        c << "<span class='fm'>grossProfit</span>  = (current - entry) &times; qty\n"
+          << "               = (" << curPrice << " - " << t.value << ") &times; " << t.quantity
+          << " = <span class='vl'>" << r.grossProfit << "</span>\n";
+    else
+        c << "<span class='fm'>grossProfit</span>  = (entry - current) &times; qty\n"
+          << "               = (" << t.value << " - " << curPrice << ") &times; " << t.quantity
+          << " = <span class='vl'>" << r.grossProfit << "</span>\n";
+    double cost = t.value * t.quantity + buyFees;
+    c << "<span class='fm'>netProfit</span>    = gross - buyFees - sellFees\n"
+      << "               = " << r.grossProfit << " - " << buyFees << " - " << sellFees
+      << " = <span class='rs'>" << r.netProfit << "</span>\n"
+      << "<span class='fm'>cost</span>         = entry &times; qty + buyFees\n"
+      << "               = " << t.value << " &times; " << t.quantity << " + " << buyFees
+      << " = <span class='vl'>" << cost << "</span>\n"
+      << "<span class='fm'>ROI</span>          = (net / cost) &times; 100\n"
+      << "               = (" << r.netProfit << " / " << cost << ") &times; 100"
+      << " = <span class='rs'>" << r.roi << "%</span>\n";
+    return c.str();
 }
 
 inline std::string wrap(const std::string& title, const std::string& body)
@@ -605,6 +692,10 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                  "<div class='stat'><div class='lbl'>ROI</div><div class='val'>" << r.roi << "%</div></div>"
                  "</div>"
                  "<div class='msg'>Snapshot saved</div>";
+            h << "<details><summary style='cursor:pointer;color:#58a6ff;font-size:0.85em;margin:8px 0;'>"
+                  "&#9654; Calculation Steps</summary><div class='calc-console'>"
+               << html::traceProfit(*tp, cur, buyFees, sellFees, r)
+               << "</div></details>";
         }
 
         h << "<br><form class='card' method='POST' action='/profit'><h3>Calculate Again</h3>"
@@ -789,6 +880,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         double walBal = db.loadWalletBalance();
+        h << html::workflow(0);
         h << "<h1>Market Entry Calculator</h1>"
              "<div class='row'>"
              "<div class='stat'><div class='lbl'>Wallet</div><div class='val'>" << walBal << "</div></div>"
@@ -860,6 +952,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
             TradeDatabase::ParamsRow::from("entry", sym, -1, cur, qty, p, risk));
 
         h << "<h1>Entry Strategy: " << html::esc(sym) << " @ " << std::setprecision(17) << cur << "</h1>";
+        h << html::workflow(0);
 
         h << std::fixed << std::setprecision(17);
         h << "<div class='row'>"
@@ -876,6 +969,36 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
              "<div class='stat'><div class='lbl'>Available</div><div class='val'>" << availableFunds << "</div></div>"
              "<div class='stat'><div class='lbl'>Direction</div><div class='val'>" << (isShort ? "SHORT" : "LONG") << "</div></div>"
              "</div>";
+
+        // calculation console
+        {
+            double lvlEo = MultiHorizonEngine::effectiveOverhead(cur, qty, entryParams);
+            std::ostringstream con;
+            con << std::fixed << std::setprecision(8);
+            con << "<details><summary style='cursor:pointer;color:#58a6ff;font-size:0.85em;margin:8px 0;'>"
+                   "&#9654; Calculation Steps</summary><div class='calc-console'>";
+            con << html::traceOverhead(cur, qty, entryParams);
+            con << "<span class='hd'>Position</span>"
+                << "positionDelta = (" << cur << " &times; " << qty << ") / " << p.portfolioPump
+                << " = <span class='vl'>" << posDelta << " (" << (posDelta * 100) << "%)</span>\n"
+                << "availableFunds = <span class='vl'>" << availableFunds << "</span>\n";
+            con << "<span class='hd'>Entry Levels</span>";
+            for (const auto& el : levels)
+            {
+                double factor = lvlEo * (el.index + 1);
+                con << "\n<span class='vl'>Level " << el.index << "</span>\n"
+                    << "  factor     = " << lvlEo << " &times; " << (el.index + 1) << " = " << factor << "\n"
+                    << "  entryPrice = " << cur << " &times; (1 - " << factor << ") = <span class='vl'>" << el.entryPrice << "</span>\n"
+                    << "  breakEven  = " << el.entryPrice << " &times; (1 + " << lvlEo << ") = <span class='vl'>" << el.breakEven << "</span>\n"
+                    << "  fundFrac   = <span class='vl'>" << (el.fundingFraction * 100) << "%</span>"
+                    << "  funding = <span class='vl'>" << el.funding << "</span>"
+                    << "  qty = <span class='vl'>" << el.fundingQty << "</span>\n"
+                    << "  <span class='rs'>potentialNet</span> = (" << cur << " - " << el.entryPrice << ") &times; " << el.fundingQty
+                    << " = <span class='rs'>" << el.potentialNet << "</span>\n";
+            }
+            con << "</div></details>";
+            h << con.str();
+        }
 
         // entry levels table with TP/SL
         h << "<h2>Entry Levels</h2>"
@@ -1099,6 +1222,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         std::ostringstream h;
         h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
+        h << html::workflow(2);
         h << "<h1>Exit Strategy Calculator</h1>"
              "<form class='card' method='POST' action='/exit-strategy'><h3>Parameters</h3>"
              "<label>Trade IDs</label><input type='text' name='tradeIds' placeholder='1,2,3' required><br>"
@@ -1181,6 +1305,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
             bool anyLevels = false;
             std::vector<std::string> exitSymbols;
 
+            h << html::workflow(2);
             h << "<h1>Exit Strategy</h1>";
 
             // confirm form wraps everything — hidden params + per-level fee inputs
@@ -1235,6 +1360,41 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                      "<div class='stat'><div class='lbl'>Available</div><div class='val'>" << remaining << "</div></div>"
                      "<div class='stat'><div class='lbl'>Selling</div><div class='val'>" << sellableQty << "</div></div>"
                      "</div>";
+
+                // calculation console
+                {
+                    double tradeEo = MultiHorizonEngine::effectiveOverhead(tempTrade, p);
+                    std::ostringstream con;
+                    con << std::fixed << std::setprecision(8);
+                    con << "<details><summary style='cursor:pointer;color:#58a6ff;font-size:0.85em;margin:4px 0;'>"
+                           "&#9654; Calculation Steps</summary><div class='calc-console'>";
+                    con << html::traceOverhead(tempTrade.value, tempTrade.quantity, p);
+                    con << "<span class='hd'>Sigmoid Distribution</span>"
+                        << "risk = <span class='vl'>" << risk << "</span>"
+                        << "  steepness = <span class='vl'>" << steep << "</span>"
+                        << "  exitFraction = <span class='vl'>" << exitFrac << "</span>\n"
+                        << "sellableQty = " << remaining << " &times; " << clampedFrac
+                        << " = <span class='vl'>" << sellableQty << "</span>\n"
+                        << "buyFee (pro-rated) = <span class='vl'>" << tempTrade.buyFee << "</span>\n";
+                    con << "<span class='hd'>Exit Levels</span>";
+                    for (const auto& el : levels)
+                    {
+                        if (el.sellQty <= 0) continue;
+                        double factor = tradeEo * (el.index + 1);
+                        con << "\n<span class='vl'>Level " << el.index << "</span>\n"
+                            << "  tpPrice      = " << tp->value << " &times; (1 + " << factor << ") = <span class='vl'>" << el.tpPrice << "</span>\n"
+                            << "  sellFraction = <span class='vl'>" << (el.sellFraction * 100) << "%</span>"
+                            << "  sellQty = <span class='vl'>" << el.sellQty << "</span>\n"
+                            << "  grossProfit  = (" << el.tpPrice << " - " << tp->value << ") &times; " << el.sellQty
+                            << " = <span class='vl'>" << el.grossProfit << "</span>\n"
+                            << "  levelBuyFee  = " << tempTrade.buyFee << " &times; " << el.sellFraction
+                            << " = <span class='vl'>" << el.levelBuyFee << "</span>\n"
+                            << "  <span class='rs'>netProfit</span>    = " << el.grossProfit << " - " << el.levelBuyFee
+                            << " = <span class='rs'>" << el.netProfit << "</span>\n";
+                    }
+                    con << "</div></details>";
+                    h << con.str();
+                }
 
                 h << "<table><tr><th>Lvl</th><th>TP Price</th><th>Sell Qty</th>"
                      "<th>Fraction</th><th>Value</th><th>Gross</th>"
@@ -1563,6 +1723,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         std::ostringstream h;
         h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
+        h << html::workflow(1);
         h << "<h1>Generate TP/SL Horizons</h1>";
 
         auto trades = db.loadTrades();
@@ -1652,6 +1813,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         }
         else
         {
+            h << html::workflow(1);
             h << "<h1>Horizons for " << html::esc(sym) << "</h1>";
             for (auto* bt : buyTrades)
             {
@@ -1678,6 +1840,29 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                      "<div class='stat'><div class='lbl'>Effective</div><div class='val'>"
                   << (eo * 100) << "%</div></div></div>"
                   << std::fixed << std::setprecision(17);
+                // calculation console
+                {
+                    double base = bt->value * bt->quantity;
+                    std::ostringstream con;
+                    con << std::fixed << std::setprecision(8);
+                    con << "<details><summary style='cursor:pointer;color:#58a6ff;font-size:0.85em;margin:4px 0;'>"
+                           "&#9654; Calculation Steps</summary><div class='calc-console'>";
+                    con << html::traceOverhead(bt->value, bt->quantity, tp);
+                    con << "<span class='hd'>Horizon Levels</span>"
+                        << "base = price &times; qty = " << bt->value << " &times; " << bt->quantity
+                        << " = <span class='vl'>" << base << "</span>\n";
+                    for (const auto& lv : levels)
+                    {
+                        double factor = eo * (lv.index + 1);
+                        con << "\n<span class='vl'>Level " << lv.index << "</span>\n"
+                            << "  factor = " << eo << " &times; " << (lv.index + 1) << " = " << factor << "\n"
+                            << "  TP = " << base << " &times; (1 + " << factor << ") = <span class='rs'>" << lv.takeProfit << "</span>\n";
+                        if (lv.stopLoss > 0)
+                            con << "  SL = " << base << " &times; (1 - " << factor << ") = <span class='rs'>" << lv.stopLoss << "</span>\n";
+                    }
+                    con << "</div></details>";
+                    h << con.str();
+                }
                 h << "<table><tr><th>Lvl</th><th>Take Profit</th><th>TP/unit</th>"
                      "<th>Stop Loss</th><th>SL/unit</th><th>SL?</th></tr>";
                 for (const auto& lv : levels)
