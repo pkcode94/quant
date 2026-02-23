@@ -969,10 +969,9 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         if (pts.empty()) { h << "<p class='empty'>(no entry points)</p>"; }
         else
         {
-            // show all entries in a read-only table
             h << "<table><tr><th>ID</th><th>Symbol</th><th>Lvl</th><th>Entry</th>"
                  "<th>BE</th><th>Qty</th><th>Funding</th><th>Dir</th><th>Status</th>"
-                 "<th>TP</th><th>SL</th></tr>";
+                 "<th>TP</th><th>SL</th><th>Actions</th></tr>";
             for (const auto& ep : pts)
             {
                 h << "<tr><td>" << ep.entryId << "</td>"
@@ -983,15 +982,23 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                   << "<td>" << (ep.isShort ? "SHORT" : "LONG") << "</td>"
                   << "<td class='" << (ep.traded ? "buy" : "off") << "'>"
                   << (ep.traded ? "TRADED" : "OPEN") << "</td>"
-                  << "<td>" << ep.exitTakeProfit << "</td><td>" << ep.exitStopLoss << "</td></tr>";
+                  << "<td>" << ep.exitTakeProfit << "</td><td>" << ep.exitStopLoss << "</td>"
+                  << "<td>";
+                if (!ep.traded)
+                {
+                    h << "<a class='btn btn-sm' href='/edit-entry?id=" << ep.entryId << "'>Edit</a> "
+                      << "<form class='iform' method='POST' action='/delete-entry'>"
+                      << "<input type='hidden' name='id' value='" << ep.entryId << "'>"
+                      << "<button class='btn-sm btn-danger'>Del</button></form>";
+                }
+                h << "</td></tr>";
             }
             h << "</table>";
 
-            // collect symbols with OPEN entries
+            // collect symbols with any OPEN entries that have funding
             std::vector<std::string> openSyms;
             for (const auto& ep : pts)
-                if (!ep.traded && ep.entryPrice > 0 && ep.fundingQty > 0
-                    && std::isfinite(ep.fundingQty)
+                if (!ep.traded && ep.funding > 0
                     && std::find(openSyms.begin(), openSyms.end(), ep.symbol) == openSyms.end())
                     openSyms.push_back(ep.symbol);
 
@@ -1032,8 +1039,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         // re-show price form pre-filled
         std::vector<std::string> openSyms;
         for (const auto& ep : pts)
-            if (!ep.traded && ep.entryPrice > 0 && ep.fundingQty > 0
-                && std::isfinite(ep.fundingQty)
+            if (!ep.traded && ep.funding > 0
                 && std::find(openSyms.begin(), openSyms.end(), ep.symbol) == openSyms.end())
                 openSyms.push_back(ep.symbol);
 
@@ -1048,14 +1054,28 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         }
         h << "<br><button>Check Triggers</button></form>";
 
-        // show all entries with trigger status
+        // show all OPEN entries with trigger status
         h << "<table><tr><th>ID</th><th>Symbol</th><th>Lvl</th><th>Entry</th>"
              "<th>Market</th><th>Qty</th><th>Dir</th><th>Status</th><th>Trigger</th></tr>";
         for (const auto& ep : pts)
         {
             if (ep.traded) continue;
-            if (ep.entryPrice <= 0 || !std::isfinite(ep.fundingQty) || ep.fundingQty <= 0) continue;
+            if (ep.funding <= 0) continue;
             double cur = priceFor(ep.symbol);
+            if (ep.entryPrice <= 0)
+            {
+                // boundary entry — needs a real price before it can trigger
+                h << "<tr><td>" << ep.entryId << "</td>"
+                  << "<td>" << html::esc(ep.symbol) << "</td><td>" << ep.levelIndex << "</td>"
+                  << "<td>" << ep.entryPrice << "</td>"
+                  << "<td>" << cur << "</td>"
+                  << "<td>" << ep.fundingQty << "</td>"
+                  << "<td>" << (ep.isShort ? "SHORT" : "LONG") << "</td>"
+                  << "<td class='off'>OPEN</td>"
+                  << "<td class='sell'><a href='/edit-entry?id=" << ep.entryId
+                  << "' style='color:#f85149;'>EDIT PRICE</a></td></tr>";
+                continue;
+            }
             bool hit = false;
             if (cur > 0)
                 hit = ep.isShort ? (cur >= ep.entryPrice) : (cur <= ep.entryPrice);
@@ -1078,13 +1098,16 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         for (const auto& ep : pts)
         {
             if (ep.traded) continue;
-            if (ep.entryPrice <= 0 || !std::isfinite(ep.fundingQty) || ep.fundingQty <= 0) continue;
+            if (ep.entryPrice <= 0 || ep.funding <= 0) continue;
             double cur = priceFor(ep.symbol);
             if (cur <= 0) continue;
+            // use funding/entryPrice to recompute qty if stored qty is 0 (sanitised boundary)
+            double qty = (ep.fundingQty > 0 && std::isfinite(ep.fundingQty))
+                       ? ep.fundingQty : ep.funding / ep.entryPrice;
             bool hit = ep.isShort ? (cur >= ep.entryPrice) : (cur <= ep.entryPrice);
             if (hit)
                 hits.push_back({ep.entryId, ep.symbol, ep.entryPrice,
-                    ep.fundingQty, ep.exitTakeProfit, ep.exitStopLoss, ep.isShort, cur});
+                    qty, ep.exitTakeProfit, ep.exitStopLoss, ep.isShort, cur});
         }
 
         if (!hits.empty())
@@ -1144,10 +1167,13 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         {
             if (ep.traded) continue;
             if (fv(f, "exec_" + std::to_string(ep.entryId)).empty()) continue;
-            if (ep.entryPrice <= 0 || !std::isfinite(ep.fundingQty) || ep.fundingQty <= 0) continue;
+            if (ep.entryPrice <= 0 || ep.funding <= 0) continue;
 
+            // recompute qty from funding if stored qty was sanitised to 0
+            double execQty = (ep.fundingQty > 0 && std::isfinite(ep.fundingQty))
+                           ? ep.fundingQty : ep.funding / ep.entryPrice;
             double buyFee = fd(f, "fee_" + std::to_string(ep.entryId));
-            double cost = ep.entryPrice * ep.fundingQty + buyFee;
+            double cost = ep.entryPrice * execQty + buyFee;
             double walBal = db.loadWalletBalance();
 
             if (cost > walBal)
@@ -1156,7 +1182,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                 continue;
             }
 
-            int bid = db.executeBuy(ep.symbol, ep.entryPrice, ep.fundingQty, buyFee);
+            int bid = db.executeBuy(ep.symbol, ep.entryPrice, execQty, buyFee);
             ep.traded = true;
             ep.linkedTradeId = bid;
 
@@ -1180,6 +1206,112 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                 + "+executed,+" + std::to_string(failed) + "+failed+(insufficient+funds)", 303);
         else
             res.set_redirect("/entry-points?msg=" + std::to_string(executed) + "+entries+executed+as+trades", 303);
+    });
+
+    // ========== GET /edit-entry ==========
+    svr.Get("/edit-entry", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(dbMutex);
+        std::ostringstream h;
+        h << std::fixed << std::setprecision(17);
+        h << html::msgBanner(req) << html::errBanner(req);
+        int id = 0;
+        try { id = std::stoi(req.get_param_value("id")); } catch (...) {}
+        auto pts = db.loadEntryPoints();
+        TradeDatabase::EntryPoint* found = nullptr;
+        for (auto& ep : pts)
+            if (ep.entryId == id) { found = &ep; break; }
+
+        if (!found || found->traded)
+        {
+            h << "<h1>Edit Entry</h1><div class='msg err'>Entry not found or already traded</div>";
+        }
+        else
+        {
+            auto& ep = *found;
+            double eo = ep.effectiveOverhead;
+            h << "<h1>Edit Entry #" << ep.entryId << " " << html::esc(ep.symbol) << "</h1>"
+                 "<form class='card' method='POST' action='/edit-entry'>"
+                 "<input type='hidden' name='id' value='" << ep.entryId << "'>"
+                 "<label>Entry Price</label><input type='number' name='entryPrice' step='any' value='" << ep.entryPrice << "'><br>"
+                 "<label>Funding</label><input type='number' name='funding' step='any' value='" << ep.funding << "'><br>"
+                 "<label>Qty</label><input type='number' name='fundingQty' step='any' value='" << ep.fundingQty << "'>"
+                 "<div style='color:#484f58;font-size:0.78em;'>Leave 0 to auto-compute from funding/price</div>"
+                 "<label>TP/unit</label><input type='number' name='exitTP' step='any' value='" << ep.exitTakeProfit << "'><br>"
+                 "<label>SL/unit</label><input type='number' name='exitSL' step='any' value='" << ep.exitStopLoss << "'><br>"
+                 "<label>Break Even</label><input type='number' name='breakEven' step='any' value='" << ep.breakEven << "'><br>"
+                 "<div style='color:#484f58;font-size:0.78em;margin:8px 0;'>"
+                 "Effective overhead: " << (eo * 100) << "% &mdash; for auto TP/SL set price and leave TP/SL at 0</div>"
+                 "<button>Save Changes</button></form>";
+        }
+        h << "<br><a class='btn' href='/entry-points'>Back</a>";
+        res.set_content(html::wrap("Edit Entry", h.str()), "text/html");
+    });
+
+    // ========== POST /edit-entry ==========
+    svr.Post("/edit-entry", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(dbMutex);
+        auto f = parseForm(req.body);
+        int id = fi(f, "id");
+        auto pts = db.loadEntryPoints();
+        TradeDatabase::EntryPoint* found = nullptr;
+        for (auto& ep : pts)
+            if (ep.entryId == id) { found = &ep; break; }
+
+        if (!found || found->traded)
+        {
+            res.set_redirect("/entry-points?err=Entry+not+found+or+already+traded", 303);
+            return;
+        }
+
+        auto& ep = *found;
+        double newPrice = fd(f, "entryPrice", ep.entryPrice);
+        double newFunding = fd(f, "funding", ep.funding);
+        double newQty = fd(f, "fundingQty");
+        double newTP = fd(f, "exitTP");
+        double newSL = fd(f, "exitSL");
+        double newBE = fd(f, "breakEven");
+
+        if (newPrice > 0) ep.entryPrice = newPrice;
+        if (newFunding > 0) ep.funding = newFunding;
+
+        // auto-compute qty from funding/price if left at 0
+        if (newQty > 0)
+            ep.fundingQty = newQty;
+        else if (ep.entryPrice > 0)
+            ep.fundingQty = ep.funding / ep.entryPrice;
+
+        // auto-compute TP/SL from entry and overhead if left at 0
+        double eo = ep.effectiveOverhead;
+        if (newTP > 0)
+            ep.exitTakeProfit = newTP;
+        else if (ep.entryPrice > 0)
+            ep.exitTakeProfit = ep.isShort ? ep.entryPrice * (1.0 - eo) : ep.entryPrice * (1.0 + eo);
+
+        if (newSL > 0)
+            ep.exitStopLoss = newSL;
+        else if (ep.entryPrice > 0)
+            ep.exitStopLoss = ep.isShort ? ep.entryPrice * (1.0 + eo) : ep.entryPrice * (1.0 - eo);
+
+        if (newBE > 0)
+            ep.breakEven = newBE;
+        else if (ep.entryPrice > 0)
+            ep.breakEven = ep.entryPrice * (1.0 + ep.effectiveOverhead);
+
+        db.saveEntryPoints(pts);
+        res.set_redirect("/entry-points?msg=Entry+" + std::to_string(id) + "+updated", 303);
+    });
+
+    // ========== POST /delete-entry ==========
+    svr.Post("/delete-entry", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(dbMutex);
+        auto f = parseForm(req.body);
+        int id = fi(f, "id");
+        auto pts = db.loadEntryPoints();
+        std::vector<TradeDatabase::EntryPoint> remaining;
+        for (const auto& ep : pts)
+            if (ep.entryId != id) remaining.push_back(ep);
+        db.saveEntryPoints(remaining);
+        res.set_redirect("/entry-points?msg=Entry+" + std::to_string(id) + "+deleted", 303);
     });
 
     // ========== GET /profit-history ==========
