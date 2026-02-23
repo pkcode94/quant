@@ -831,6 +831,34 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                   << "<button class='btn-sm btn-danger'>Remove</button></form></td></tr>";
             }
             h << "</table>";
+
+            // Confirm form — enter prices per symbol and sell fees per order
+            std::vector<std::string> peSyms;
+            for (const auto& pe : orders)
+                if (std::find(peSyms.begin(), peSyms.end(), pe.symbol) == peSyms.end())
+                    peSyms.push_back(pe.symbol);
+
+            h << "<form class='card' method='POST' action='/confirm-pending-exits'>"
+                 "<h3>Confirm Pending Exits</h3>";
+            for (const auto& sym : peSyms)
+            {
+                h << "<label>" << html::esc(sym) << " Price</label>"
+                  << "<input type='number' name='price_" << html::esc(sym)
+                  << "' step='any' required><br>";
+            }
+            h << "<table><tr><th>Order</th><th>Symbol</th><th>Trigger</th>"
+                 "<th>Qty</th><th>Sell Fee</th></tr>";
+            for (const auto& pe : orders)
+            {
+                h << "<tr><td>" << pe.orderId << "</td>"
+                  << "<td>" << html::esc(pe.symbol) << "</td>"
+                  << "<td>" << pe.triggerPrice << "</td>"
+                  << "<td>" << pe.sellQty << "</td>"
+                  << "<td><input type='number' name='sellFee_" << pe.orderId
+                  << "' step='any' value='0' style='width:80px;'></td></tr>";
+            }
+            h << "</table>"
+                 "<button>Confirm &amp; Execute</button></form>";
         }
         res.set_content(html::wrap("Pending Exits", h.str()), "text/html");
     });
@@ -842,6 +870,89 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         int id = fi(f, "id");
         db.removePendingExit(id);
         res.set_redirect("/pending-exits?msg=Order+" + std::to_string(id) + "+removed", 303);
+    });
+
+    // ========== POST /confirm-pending-exits ==========
+    svr.Post("/confirm-pending-exits", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(dbMutex);
+        auto f = parseForm(req.body);
+        auto orders = db.loadPendingExits();
+
+        auto priceFor = [&](const std::string& sym) -> double {
+            return fd(f, "price_" + sym, 0.0);
+        };
+
+        std::ostringstream h;
+        h << std::fixed << std::setprecision(17);
+        h << "<h1>Pending Exit Execution</h1>";
+
+        int executed = 0, skipped = 0;
+        std::vector<int> executedIds;
+
+        h << "<table><tr><th>Order</th><th>Symbol</th><th>Trigger</th>"
+             "<th>Market</th><th>Qty</th><th>Fee</th><th>Sell ID</th><th>Status</th></tr>";
+
+        for (const auto& pe : orders)
+        {
+            double cur = priceFor(pe.symbol);
+            double sellFee = fd(f, "sellFee_" + std::to_string(pe.orderId));
+
+            if (cur > 0 && cur >= pe.triggerPrice)
+            {
+                int sid = db.executeSell(pe.symbol, pe.triggerPrice, pe.sellQty, sellFee);
+                if (sid >= 0)
+                {
+                    h << "<tr><td>" << pe.orderId << "</td>"
+                      << "<td>" << html::esc(pe.symbol) << "</td>"
+                      << "<td>" << pe.triggerPrice << "</td>"
+                      << "<td class='buy'>" << cur << "</td>"
+                      << "<td>" << pe.sellQty << "</td>"
+                      << "<td>" << sellFee << "</td>"
+                      << "<td class='buy'>#" << sid << "</td>"
+                      << "<td class='buy'>EXECUTED</td></tr>";
+                    executedIds.push_back(pe.orderId);
+                    ++executed;
+                }
+                else
+                {
+                    h << "<tr><td>" << pe.orderId << "</td>"
+                      << "<td>" << html::esc(pe.symbol) << "</td>"
+                      << "<td>" << pe.triggerPrice << "</td>"
+                      << "<td>" << cur << "</td>"
+                      << "<td>" << pe.sellQty << "</td>"
+                      << "<td>" << sellFee << "</td>"
+                      << "<td>-</td>"
+                      << "<td class='sell'>FAILED</td></tr>";
+                }
+            }
+            else
+            {
+                h << "<tr><td>" << pe.orderId << "</td>"
+                  << "<td>" << html::esc(pe.symbol) << "</td>"
+                  << "<td>" << pe.triggerPrice << "</td>"
+                  << "<td>" << cur << "</td>"
+                  << "<td>" << pe.sellQty << "</td>"
+                  << "<td>" << sellFee << "</td>"
+                  << "<td>-</td>"
+                  << "<td class='off'>BELOW TRIGGER</td></tr>";
+                ++skipped;
+            }
+        }
+        h << "</table>";
+
+        // remove executed orders from pending
+        for (int oid : executedIds)
+            db.removePendingExit(oid);
+
+        h << "<div class='row'>"
+             "<div class='stat'><div class='lbl'>Executed</div><div class='val'>" << executed << "</div></div>"
+             "<div class='stat'><div class='lbl'>Skipped</div><div class='val'>" << skipped << "</div></div>"
+             "<div class='stat'><div class='lbl'>Wallet</div><div class='val'>" << db.loadWalletBalance() << "</div></div>"
+             "</div>";
+
+        h << "<br><a class='btn' href='/trades'>Trades</a> "
+             "<a class='btn' href='/pending-exits'>Pending Exits</a>";
+        res.set_content(html::wrap("Pending Exit Execution", h.str()), "text/html");
     });
 
     // ========== GET /entry-points ==========
