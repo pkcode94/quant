@@ -393,8 +393,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         // Execute Sell form
         h << "<form class='card' method='POST' action='/execute-sell'>"
              "<h3>Execute Sell</h3>"
-             "<div style='color:#8b949e;font-size:0.78em;margin-bottom:8px;'>Creates sell against parent buy &amp; credits wallet</div>"
-             "<label>Trade ID</label><input type='number' name='tradeId' required><br>"
+             "<div style='color:#8b949e;font-size:0.78em;margin-bottom:8px;'>Deducts from symbol holdings &amp; credits wallet</div>"
+             "<label>Symbol</label><input type='text' name='symbol' required><br>"
              "<label>Price</label><input type='number' name='price' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
              "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='0'><br>"
@@ -508,12 +508,13 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Post("/execute-sell", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         auto f = parseForm(req.body);
-        int parentId = fi(f, "tradeId");
+        std::string sym = normalizeSymbol(fv(f, "symbol"));
         double price = fd(f, "price");
         double qty = fd(f, "quantity");
         double fee = fd(f, "sellFee");
-        int sid = db.executeSell(parentId, price, qty, fee);
-        if (sid < 0) { res.set_redirect("/trades?err=Sell+failed", 303); return; }
+        if (sym.empty() || price <= 0 || qty <= 0) { res.set_redirect("/trades?err=Invalid+sell+parameters", 303); return; }
+        int sid = db.executeSell(sym, price, qty, fee);
+        if (sid < 0) { res.set_redirect("/trades?err=Sell+failed+(insufficient+holdings)", 303); return; }
         res.set_redirect("/trades?msg=Sell+" + std::to_string(sid) + "+executed", 303);
     });
 
@@ -1586,7 +1587,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                  "<th>Qty</th><th>Sell ID</th><th>Status</th></tr>";
             for (const auto& eo : hitOrders)
             {
-                int sid = db.executeSell(eo.tradeId, eo.triggerPrice, eo.sellQty, eo.sellFee);
+                int sid = db.executeSell(eo.symbol, eo.triggerPrice, eo.sellQty, eo.sellFee);
                 if (sid >= 0)
                 {
                     h << "<tr><td>" << eo.tradeId << "</td>"

@@ -573,25 +573,38 @@ public:
         return !loadAllHorizons().empty();
     }
 
-    // Execute a sell: create a CoveredSell child, credit wallet with (proceeds - sellFee).
-    // Returns the new trade ID, or -1 if validation fails.
-    int executeSell(int parentTradeId, double sellPrice, double sellQty, double sellFee = 0.0)
+    // Compute net holdings for a symbol (total bought - total sold).
+    double holdingsForSymbol(const std::string& symbol) const
     {
-        auto trades = loadTrades();
-        auto* parent = findTradeById(trades, parentTradeId);
-        if (!parent || parent->type != TradeType::Buy) return -1;
+        double holdings = 0.0;
+        for (const auto& t : loadTrades())
+        {
+            if (t.symbol != symbol) continue;
+            if (t.type == TradeType::Buy)
+                holdings += t.quantity;
+            else
+                holdings -= t.quantity;
+        }
+        return holdings;
+    }
 
-        double remaining = parent->quantity - soldQuantityForParent(parentTradeId);
+    // Execute a sell: deduct from the symbol's holdings, credit wallet with (proceeds - sellFee).
+    // Returns the new trade ID, or -1 if validation fails.
+    int executeSell(const std::string& symbol, double sellPrice, double sellQty, double sellFee = 0.0)
+    {
+        if (symbol.empty()) return -1;
+
+        double remaining = holdingsForSymbol(symbol);
         if (sellQty > remaining + 1e-9) return -1;
         if (sellQty > remaining) sellQty = remaining;
 
         Trade sell;
         sell.tradeId       = nextTradeId();
-        sell.symbol        = parent->symbol;
+        sell.symbol        = symbol;
         sell.type          = TradeType::CoveredSell;
         sell.value         = sellPrice;
         sell.quantity      = sellQty;
-        sell.parentTradeId = parentTradeId;
+        sell.parentTradeId = -1;
         sell.sellFee       = sellFee;
         addTrade(sell);
 

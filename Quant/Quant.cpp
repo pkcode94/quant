@@ -1033,13 +1033,13 @@ static void exitStrategy(TradeDatabase& db)
             {
                 for (const auto& pe : hitOrders)
                 {
-                    int sid = db.executeSell(pe.tradeId, pe.triggerPrice, pe.sellQty);
+                    int sid = db.executeSell(pe.symbol, pe.triggerPrice, pe.sellQty);
                     if (sid >= 0)
                         std::cout << "    -> CoveredSell #" << sid
                                   << "  " << pe.sellQty << " @ " << pe.triggerPrice << "\n";
                     else
-                        std::cout << "    -> Failed #" << pe.tradeId
-                                  << " (insufficient qty)\n";
+                        std::cout << "    -> Failed " << pe.symbol
+                                  << " (insufficient holdings)\n";
                 }
                 std::cout << "  -> Executed. Wallet credited.\n";
             }
@@ -1214,12 +1214,12 @@ static void priceCheck(TradeDatabase& db)
         {
             for (const auto& tr : triggers)
             {
-                int sid = db.executeSell(tr.tradeId, tr.price, tr.qty);
+                int sid = db.executeSell(tr.symbol, tr.price, tr.qty);
                 if (sid >= 0)
                     std::cout << "    -> CoveredSell #" << sid
                               << "  " << tr.qty << " @ " << tr.price << "\n";
                 else
-                    std::cout << "    -> Sell failed for #" << tr.tradeId << "\n";
+                    std::cout << "    -> Sell failed for " << tr.symbol << "\n";
             }
             std::cout << "  -> Executed. Wallet credited.\n";
         }
@@ -1254,7 +1254,7 @@ static void priceCheck(TradeDatabase& db)
             for (const auto& pe : triggered)
             {
                 double cur = priceForSymbol(pe.symbol);
-                int sid = db.executeSell(pe.tradeId, cur, pe.sellQty);
+                int sid = db.executeSell(pe.symbol, cur, pe.sellQty);
                 if (sid >= 0)
                 {
                     std::cout << "    -> CoveredSell #" << sid
@@ -1264,8 +1264,8 @@ static void priceCheck(TradeDatabase& db)
                 }
                 else
                 {
-                    std::cout << "    -> Sell failed for order#" << pe.orderId
-                              << " (insufficient remaining qty)\n";
+                    std::cout << "    -> Sell failed for " << pe.symbol
+                              << " (insufficient holdings)\n";
                 }
             }
             std::cout << "  -> Pending exits executed. Wallet credited.\n";
@@ -1639,7 +1639,7 @@ static void viewPendingExits(TradeDatabase& db)
                 continue;
             }
 
-            int sid = db.executeSell(pe.tradeId, pe.triggerPrice, pe.sellQty);
+            int sid = db.executeSell(pe.symbol, pe.triggerPrice, pe.sellQty);
             if (sid >= 0)
             {
                 std::cout << "    -> CoveredSell #" << sid
@@ -1650,8 +1650,8 @@ static void viewPendingExits(TradeDatabase& db)
             }
             else
             {
-                std::cout << "    -> Failed order#" << pe.orderId
-                          << " (insufficient remaining qty)\n";
+                std::cout << "    -> Failed " << pe.symbol
+                          << " (insufficient holdings)\n";
             }
         }
         if (skipped > 0)
