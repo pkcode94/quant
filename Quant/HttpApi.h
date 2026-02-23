@@ -380,30 +380,10 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
 
         h << "<div class='forms-row'>";
 
-        // Add Buy trade form
-        h << "<form class='card' method='POST' action='/add-trade'>"
-             "<h3>Add Buy Trade</h3>"
-             "<input type='hidden' name='type' value='Buy'>"
-             "<label>Symbol</label><input type='text' name='symbol' required><br>"
-             "<label>Price</label><input type='number' name='price' step='any' required><br>"
-             "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
-             "<label>Buy Fee</label><input type='number' name='buyFee' step='any' value='0'><br>"
-             "<button>Add Buy</button></form>";
-
-        // Add CoveredSell trade form
-        h << "<form class='card' method='POST' action='/add-trade'>"
-             "<h3>Add Sell Trade</h3>"
-             "<input type='hidden' name='type' value='CoveredSell'>"
-             "<label>Symbol</label><input type='text' name='symbol' required><br>"
-             "<label>Parent Buy ID</label><input type='number' name='parentTradeId' required><br>"
-             "<label>Price</label><input type='number' name='price' step='any' required><br>"
-             "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
-             "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='0'><br>"
-             "<button>Add Sell</button></form>";
-
         // Execute Buy form
         h << "<form class='card' method='POST' action='/execute-buy'>"
              "<h3>Execute Buy</h3>"
+             "<div style='color:#8b949e;font-size:0.78em;margin-bottom:8px;'>Creates trade &amp; debits wallet</div>"
              "<label>Symbol</label><input type='text' name='symbol' required><br>"
              "<label>Price</label><input type='number' name='price' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
@@ -413,11 +393,35 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         // Execute Sell form
         h << "<form class='card' method='POST' action='/execute-sell'>"
              "<h3>Execute Sell</h3>"
+             "<div style='color:#8b949e;font-size:0.78em;margin-bottom:8px;'>Creates sell against parent buy &amp; credits wallet</div>"
              "<label>Trade ID</label><input type='number' name='tradeId' required><br>"
              "<label>Price</label><input type='number' name='price' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
              "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='0'><br>"
              "<button>Execute Sell</button></form>";
+
+        // Add Buy trade form (ledger only)
+        h << "<form class='card' method='POST' action='/add-trade'>"
+             "<h3>Import Buy</h3>"
+             "<div style='color:#8b949e;font-size:0.78em;margin-bottom:8px;'>Record only &mdash; no wallet movement</div>"
+             "<input type='hidden' name='type' value='Buy'>"
+             "<label>Symbol</label><input type='text' name='symbol' required><br>"
+             "<label>Price</label><input type='number' name='price' step='any' required><br>"
+             "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
+             "<label>Buy Fee</label><input type='number' name='buyFee' step='any' value='0'><br>"
+             "<button>Import Buy</button></form>";
+
+        // Add CoveredSell trade form (ledger only)
+        h << "<form class='card' method='POST' action='/add-trade'>"
+             "<h3>Import Sell</h3>"
+             "<div style='color:#8b949e;font-size:0.78em;margin-bottom:8px;'>Record only &mdash; no wallet movement</div>"
+             "<input type='hidden' name='type' value='CoveredSell'>"
+             "<label>Symbol</label><input type='text' name='symbol' required><br>"
+             "<label>Parent Buy ID</label><input type='number' name='parentTradeId' required><br>"
+             "<label>Price</label><input type='number' name='price' step='any' required><br>"
+             "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
+             "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='0'><br>"
+             "<button>Import Sell</button></form>";
 
         h << "</div>";
         res.set_content(html::wrap("Trades", h.str()), "text/html");
