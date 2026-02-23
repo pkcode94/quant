@@ -30,7 +30,7 @@ struct Trade
     // Fees paid at execution
     double buyFee          = 0.0;
     double sellFee         = 0.0;
-
+    //
     // Take-profit / stop-loss (meaningful for Buy trades only)
     double takeProfit      = 0.0;
     double stopLoss        = 0.0;
