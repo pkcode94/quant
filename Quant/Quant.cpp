@@ -439,9 +439,6 @@ static void generateHorizons(TradeDatabase& db)
 
     for (auto* bt : buyTrades)
     {
-        p.buyFees  = readDouble("  Buy fee for #" + std::to_string(bt->tradeId) + ": ");
-        p.sellFees = readDouble("  Sell fee for #" + std::to_string(bt->tradeId) + ": ");
-
         double originalQty = bt->quantity;
         double maxFundable = (bt->value > 0.0) ? remainingCap / bt->value : 0.0;
         double fundedQty   = MultiHorizonEngine::fundedQuantity(bt->value, p);
@@ -644,8 +641,6 @@ static void marketEntry(TradeDatabase& db)
     double qty   = readDouble("  Quantity you plan to buy: ");
 
     HorizonParams p = readHorizonParams("  How many entry levels: ");
-    p.buyFees  = readDouble("  Model buy fee (for overhead calculation): ");
-    p.sellFees = readDouble("  Model sell fee (for overhead calculation): ");
 
     int fundMode = readInt("  Funding source (1=pump only, 2=pump + liquid balance): ");
     double availableFunds = p.portfolioPump;

@@ -23,14 +23,19 @@
 
 struct ExitLevel
 {
+    // -- Computed at generation time --
     int    index          = 0;
     double tpPrice        = 0.0;   // take-profit price per unit at this level
     double sellQty        = 0.0;   // quantity to sell at this level
     double sellFraction   = 0.0;   // fraction of sellable position (0-1)
     double sellValue      = 0.0;   // gross proceeds = tpPrice * sellQty
     double grossProfit    = 0.0;   // (tpPrice - entry) * sellQty
-    double netProfit      = 0.0;   // grossProfit - proportional fees
     double cumSold        = 0.0;   // cumulative quantity sold through this level
+
+    // -- Per-level fees (filled progressively) --
+    double levelBuyFee    = 0.0;   // amortized buy fee for this tranche (auto-set at generation)
+    double levelSellFee   = 0.0;   // actual sell fee (set at execution time)
+    double netProfit      = 0.0;   // grossProfit - levelBuyFee - levelSellFee
     double cumNetProfit   = 0.0;   // cumulative net profit locked in
 };
 
@@ -71,7 +76,7 @@ public:
             cumSigma[i] = (hi > lo) ? (cumSigma[i] - lo) / (hi - lo)
                                     : static_cast<double>(i) / static_cast<double>(N);
 
-        double totalFees = p.buyFees + p.sellFees;
+        double totalBuyFees = trade.buyFee;
 
         std::vector<ExitLevel> levels;
         levels.reserve(N);
@@ -90,7 +95,10 @@ public:
             el.sellQty      = sellableQty * el.sellFraction;
             el.sellValue    = el.tpPrice * el.sellQty;
             el.grossProfit  = (el.tpPrice - trade.value) * el.sellQty;
-            el.netProfit    = el.grossProfit - totalFees * el.sellFraction;
+
+            el.levelBuyFee  = totalBuyFees * el.sellFraction;
+            el.levelSellFee = 0.0;
+            el.netProfit    = el.grossProfit - el.levelBuyFee;
 
             cumSold += el.sellQty;
             cumNet  += el.netProfit;
@@ -101,6 +109,18 @@ public:
         }
 
         return levels;
+    }
+
+    // Recompute netProfit and cumNetProfit after per-level fees are updated.
+    static void applyFees(std::vector<ExitLevel>& levels)
+    {
+        double cumNet = 0.0;
+        for (auto& el : levels)
+        {
+            el.netProfit = el.grossProfit - el.levelBuyFee - el.levelSellFee;
+            cumNet += el.netProfit;
+            el.cumNetProfit = cumNet;
+        }
     }
 
 private:

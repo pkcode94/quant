@@ -754,8 +754,6 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
              "<label>Current Price</label><input type='number' name='currentPrice' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
              "<label>Levels</label><input type='number' name='levels' value='4'><br>"
-             "<label>Buy Fees</label><input type='number' name='buyFees' step='any' value='0'><br>"
-             "<label>Sell Fees</label><input type='number' name='sellFees' step='any' value='0'><br>"
              "<label>Fee Hedging</label><input type='number' name='feeHedgingCoefficient' step='any' value='1'><br>"
              "<label>Pump</label><input type='number' name='portfolioPump' step='any' value='0'><br>"
              "<label>Symbol Count</label><input type='number' name='symbolCount' value='1'><br>"
@@ -784,8 +782,6 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         int fundMode = fi(f, "fundMode", 1);
         HorizonParams p;
         p.horizonCount = fi(f, "levels", 4);
-        p.buyFees = fd(f, "buyFees");
-        p.sellFees = fd(f, "sellFees");
         p.feeHedgingCoefficient = fd(f, "feeHedgingCoefficient", 1.0);
         p.portfolioPump = fd(f, "portfolioPump");
         p.symbolCount = fi(f, "symbolCount", 1);
@@ -877,8 +873,6 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
              "<input type='hidden' name='isShort' value='" << (isShort ? "1" : "0") << "'>"
              "<input type='hidden' name='fundMode' value='" << fundMode << "'>"
              "<input type='hidden' name='levels' value='" << p.horizonCount << "'>"
-             "<input type='hidden' name='buyFees' value='" << p.buyFees << "'>"
-             "<input type='hidden' name='sellFees' value='" << p.sellFees << "'>"
              "<input type='hidden' name='feeHedgingCoefficient' value='" << p.feeHedgingCoefficient << "'>"
              "<input type='hidden' name='portfolioPump' value='" << p.portfolioPump << "'>"
              "<input type='hidden' name='symbolCount' value='" << p.symbolCount << "'>"
@@ -917,8 +911,6 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         int fundMode = fi(f, "fundMode", 1);
         HorizonParams p;
         p.horizonCount = fi(f, "levels", 4);
-        p.buyFees = fd(f, "buyFees");
-        p.sellFees = fd(f, "sellFees");
         p.feeHedgingCoefficient = fd(f, "feeHedgingCoefficient", 1.0);
         p.portfolioPump = fd(f, "portfolioPump");
         p.symbolCount = fi(f, "symbolCount", 1);

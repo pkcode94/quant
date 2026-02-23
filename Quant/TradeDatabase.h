@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Trade.h"
 #include "MultiHorizonEngine.h"
@@ -34,14 +34,16 @@ public:
             f << t.symbol       << ','
               << t.tradeId      << ','
               << static_cast<int>(t.type) << ','
-              << std::fixed << std::setprecision(8)
+              << std::fixed << std::setprecision(17)
               << t.value        << ','
               << t.quantity     << ','
               << t.parentTradeId << ','
               << t.takeProfit   << ','
               << t.stopLoss     << ','
               << t.stopLossActive << ','
-              << t.shortEnabled
+              << t.shortEnabled  << ','
+              << t.buyFee        << ','
+              << t.sellFee
               << '\n';
         }
     }
@@ -80,7 +82,7 @@ public:
         auto all = loadTrades();
         for (auto& t : all)
         {
-            if (t.symbol == updated.symbol && t.tradeId == updated.tradeId)
+            if (t.tradeId == updated.tradeId)
             {
                 t = updated;
                 break;
@@ -113,6 +115,8 @@ public:
             std::getline(ss, tok, ','); t.stopLoss       = std::stod(tok);
             std::getline(ss, tok, ','); t.stopLossActive = (std::stoi(tok) != 0);
             std::getline(ss, tok, ','); t.shortEnabled   = (std::stoi(tok) != 0);
+            if (std::getline(ss, tok, ',') && !tok.empty()) { try { t.buyFee  = std::stod(tok); } catch (...) {} }
+            if (std::getline(ss, tok, ',') && !tok.empty()) { try { t.sellFee = std::stod(tok); } catch (...) {} }
 
             out.push_back(t);
         }
@@ -188,7 +192,7 @@ public:
 
         f << symbol       << ','
           << tradeId      << ','
-          << std::fixed << std::setprecision(8)
+          << std::fixed << std::setprecision(17)
           << currentPrice << ','
           << r.grossProfit << ','
           << r.netProfit   << ','
@@ -254,7 +258,8 @@ public:
 
         static ParamsRow from(const std::string& type, const std::string& sym,
                               int tid, double price, double qty,
-                              const HorizonParams& p, double risk = 0.0)
+                              const HorizonParams& p, double risk = 0.0,
+                              double buyFees = 0.0, double sellFees = 0.0)
         {
             ParamsRow r;
             r.calcType              = type;
@@ -262,8 +267,8 @@ public:
             r.tradeId               = tid;
             r.currentPrice          = price;
             r.quantity              = qty;
-            r.buyFees               = p.buyFees;
-            r.sellFees              = p.sellFees;
+            r.buyFees               = buyFees;
+            r.sellFees              = sellFees;
             r.feeHedgingCoefficient = p.feeHedgingCoefficient;
             r.portfolioPump         = p.portfolioPump;
             r.symbolCount           = p.symbolCount;
@@ -280,8 +285,6 @@ public:
         HorizonParams toHorizonParams() const
         {
             HorizonParams p;
-            p.buyFees               = buyFees;
-            p.sellFees              = sellFees;
             p.feeHedgingCoefficient = feeHedgingCoefficient;
             p.portfolioPump         = portfolioPump;
             p.symbolCount           = symbolCount;
@@ -303,7 +306,7 @@ public:
         f << r.calcType     << ','
           << r.symbol       << ','
           << r.tradeId      << ','
-          << std::fixed << std::setprecision(8)
+          << std::fixed << std::setprecision(17)
           << r.currentPrice << ','
           << r.quantity     << ','
           << r.buyFees      << ','
@@ -379,7 +382,7 @@ public:
             f << o.symbol      << ','
               << o.orderId     << ','
               << o.tradeId     << ','
-              << std::fixed << std::setprecision(8)
+              << std::fixed << std::setprecision(17)
               << o.triggerPrice << ','
               << o.sellQty     << ','
               << o.levelIndex  << '\n';
@@ -460,7 +463,7 @@ public:
             f << ep.symbol             << ','
               << ep.entryId            << ','
               << ep.levelIndex         << ','
-              << std::fixed << std::setprecision(8)
+              << std::fixed << std::setprecision(17)
               << ep.entryPrice         << ','
               << ep.breakEven          << ','
               << ep.funding            << ','
@@ -530,7 +533,7 @@ public:
     {
         std::ofstream f(walletPath(), std::ios::trunc);
         if (!f) throw std::runtime_error("Cannot open " + walletPath());
-        f << std::fixed << std::setprecision(8) << balance << '\n';
+        f << std::fixed << std::setprecision(17) << balance << '\n';
     }
 
     void deposit(double amount)
@@ -547,14 +550,20 @@ public:
     {
         double deployed = 0.0;
         for (const auto& t : loadTrades())
-            if (t.type == TradeType::Buy)
-                deployed += t.value * t.quantity;
+        {
+            if (t.type != TradeType::Buy) continue;
+            double sold = soldQuantityForParent(t.tradeId);
+            double remaining = t.quantity - sold;
+            if (remaining <= 0) continue;
+            double remainFrac = t.quantity > 0 ? remaining / t.quantity : 0.0;
+            deployed += t.value * remaining + t.buyFee * remainFrac;
+        }
         return deployed;
     }
 
-    // Execute a sell: create a CoveredSell child, credit wallet with proceeds.
+    // Execute a sell: create a CoveredSell child, credit wallet with (proceeds - sellFee).
     // Returns the new trade ID, or -1 if validation fails.
-    int executeSell(int parentTradeId, double sellPrice, double sellQty)
+    int executeSell(int parentTradeId, double sellPrice, double sellQty, double sellFee = 0.0)
     {
         auto trades = loadTrades();
         auto* parent = findTradeById(trades, parentTradeId);
@@ -571,17 +580,18 @@ public:
         sell.value         = sellPrice;
         sell.quantity      = sellQty;
         sell.parentTradeId = parentTradeId;
+        sell.sellFee       = sellFee;
         addTrade(sell);
 
-        double proceeds = sellPrice * sellQty;
+        double proceeds = sellPrice * sellQty - sellFee;
         deposit(proceeds);
 
         return sell.tradeId;
     }
 
-    // Execute a buy: create a Buy trade, debit wallet.
+    // Execute a buy: create a Buy trade, debit wallet for (cost + buyFee).
     // Returns the new trade ID.
-    int executeBuy(const std::string& symbol, double price, double qty)
+    int executeBuy(const std::string& symbol, double price, double qty, double buyFee = 0.0)
     {
         Trade buy;
         buy.tradeId  = nextTradeId();
@@ -589,9 +599,10 @@ public:
         buy.type     = TradeType::Buy;
         buy.value    = price;
         buy.quantity = qty;
+        buy.buyFee   = buyFee;
         addTrade(buy);
 
-        double cost = price * qty;
+        double cost = price * qty + buyFee;
         withdraw(cost);
 
         return buy.tradeId;
@@ -604,7 +615,7 @@ public:
         std::ofstream f(path, std::ios::trunc);
         if (!f) throw std::runtime_error("Cannot open " + path);
 
-        f << std::fixed << std::setprecision(2);
+        f << std::fixed << std::setprecision(17);
 
         f << R"(<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Quant Trade Report</title>
@@ -637,6 +648,7 @@ tr:nth-child(even){background:#16213e}
         {
             f << "<table><tr><th>ID</th><th>Symbol</th><th>Type</th>"
               << "<th>Price</th><th>Qty</th><th>Parent</th>"
+              << "<th>Buy Fee</th><th>Sell Fee</th>"
               << "<th>TP</th><th>SL</th><th>SL Active</th></tr>\n";
             for (const auto& t : trades)
             {
@@ -647,6 +659,8 @@ tr:nth-child(even){background:#16213e}
                   << "<td>" << t.value << "</td>"
                   << "<td>" << t.quantity << "</td>"
                   << "<td>" << (t.parentTradeId >= 0 ? std::to_string(t.parentTradeId) : "-") << "</td>"
+                  << "<td>" << t.buyFee << "</td>"
+                  << "<td>" << t.sellFee << "</td>"
                   << "<td>" << t.takeProfit << "</td>"
                   << "<td>" << t.stopLoss << "</td>"
                   << "<td>" << (t.stopLossActive ? "ON" : "OFF") << "</td></tr>\n";
@@ -703,7 +717,7 @@ tr:nth-child(even){background:#16213e}
         if (pm.empty()) { f << "<p>(none)</p>\n"; }
         else
         {
-            f << std::setprecision(4);
+            f << std::setprecision(17);
             f << "<table><tr><th>Type</th><th>Symbol</th><th>Trade</th>"
               << "<th>Price</th><th>Qty</th><th>Levels</th>"
               << "<th>BuyF</th><th>SellF</th><th>Hedge</th>"
@@ -738,7 +752,7 @@ tr:nth-child(even){background:#16213e}
         std::ofstream f(path, std::ios::trunc);
         if (!f) throw std::runtime_error("Cannot open " + path);
 
-        f << std::fixed << std::setprecision(2);
+        f << std::fixed << std::setprecision(17);
 
         f << "====== QUANT TRADE REPORT ======\n\n";
 
@@ -761,6 +775,8 @@ tr:nth-child(even){background:#16213e}
               << "  qty=" << t.quantity;
             if (t.parentTradeId >= 0)
                 f << "  parent=#" << t.parentTradeId;
+            if (t.buyFee > 0) f << "  buyFee=" << t.buyFee;
+            if (t.sellFee > 0) f << "  sellFee=" << t.sellFee;
             f << "  TP=" << t.takeProfit
               << "  SL=" << t.stopLoss
               << (t.stopLossActive ? " [SL ON]" : " [SL OFF]")
@@ -797,7 +813,7 @@ tr:nth-child(even){background:#16213e}
         f << "\n--- PARAMETER HISTORY ---\n";
         auto pm = loadParamsHistory();
         if (pm.empty()) f << "(none)\n";
-        f << std::setprecision(4);
+        f << std::setprecision(17);
         for (const auto& r : pm)
         {
             f << r.calcType << "  " << r.symbol;
@@ -885,7 +901,7 @@ private:
             f << sym            << ','
               << tid            << ','
               << lv.index       << ','
-              << std::fixed << std::setprecision(8)
+              << std::fixed << std::setprecision(17)
               << lv.takeProfit  << ','
               << lv.stopLoss    << ','
               << lv.stopLossActive

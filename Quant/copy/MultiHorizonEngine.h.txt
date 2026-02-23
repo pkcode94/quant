@@ -7,8 +7,8 @@
 // TP/SL horizon formula:
 //
 //   overhead = ((sellFees + buyFees) * feeHedgingCoefficient + feeSpread * deltaTime)
-//            * (symbolCount + coefficientK)
-//            / (price * quantity + portfolioPump)
+//            * symbolCount
+//            / ((price / quantity) * portfolioPump + coefficientK)
 //
 //   effective = overhead + surplusRate
 //   positionDelta = (price * quantity) / portfolioPump
@@ -16,7 +16,9 @@
 //   TP[i] = entry * qty * (1 + effective * (i + 1))
 //   SL[i] = entry * qty * (1 - effective * (i + 1))
 //
-// overhead covers costs relative to total capital (position + pump).
+// overhead scales fee costs by symbolCount and normalises against a
+// denominator built from the per-unit price ratio and pump capital.
+// coefficientK is an additive offset in the denominator.
 // positionDelta is the portfolio weight of this trade.
 // surplusRate is pure profit margin on top of break-even.
 // horizonCount controls how many levels are generated.
@@ -54,8 +56,9 @@ public:
             (p.sellFees + p.buyFees) * p.feeHedgingCoefficient;
         double spreadComponent = p.feeSpread * p.deltaTime;
         double numerator = (feeComponent + spreadComponent)
-                         * (static_cast<double>(p.symbolCount) + p.coefficientK);
-        double denominator = price * quantity + p.portfolioPump;
+                         * static_cast<double>(p.symbolCount);
+        double pricePerQty = (quantity > 0.0) ? price / quantity : 0.0;
+        double denominator = pricePerQty * p.portfolioPump + p.coefficientK;
         return (denominator != 0.0) ? numerator / denominator : 0.0;
     }
 

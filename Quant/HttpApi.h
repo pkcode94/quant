@@ -190,7 +190,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Quant Trade Manager</h1>";
 
@@ -211,17 +211,21 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         if (!trades.empty())
         {
             h << "<h2>Trades</h2><table><tr><th>ID</th><th>Symbol</th><th>Type</th>"
-                 "<th>Price</th><th>Qty</th><th>Cost</th><th>TP</th><th>SL</th><th>SL?</th>"
+                 "<th>Price</th><th>Qty</th><th>Cost</th><th>Buy Fee</th><th>Sell Fee</th><th>Net Cost</th><th>TP</th><th>SL</th><th>SL?</th>"
                  "<th>Sold</th><th>Rem</th></tr>";
             for (const auto& t : trades)
             {
                 double sold = db.soldQuantityForParent(t.tradeId);
                 bool isBuy = (t.type == TradeType::Buy);
+                double grossCost = t.value * t.quantity;
+                double netCost = grossCost + t.buyFee + t.sellFee;
                 h << "<tr><td>" << t.tradeId << "</td>"
                   << "<td>" << html::esc(t.symbol) << "</td>"
                   << "<td class='" << (isBuy ? "buy" : "sell") << "'>" << (isBuy ? "BUY" : "SELL") << "</td>"
                   << "<td>" << t.value << "</td><td>" << t.quantity << "</td>"
-                  << "<td>" << (t.value * t.quantity) << "</td>"
+                  << "<td>" << grossCost << "</td>"
+                  << "<td>" << t.buyFee << "</td><td>" << t.sellFee << "</td>"
+                  << "<td>" << netCost << "</td>"
                   << "<td>" << t.takeProfit << "</td><td>" << t.stopLoss << "</td>"
                   << "<td class='" << (t.stopLossActive ? "on" : "off") << "'>"
                   << (t.stopLossActive ? "ON" : "OFF") << "</td>"
@@ -236,7 +240,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/trades", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Trades</h1>";
 
@@ -248,17 +252,21 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         else
         {
             h << "<table><tr><th>ID</th><th>Symbol</th><th>Type</th>"
-                 "<th>Price</th><th>Qty</th><th>Cost</th><th>TP</th><th>SL</th><th>SL?</th>"
+                 "<th>Price</th><th>Qty</th><th>Cost</th><th>Buy Fee</th><th>Sell Fee</th><th>Net Cost</th><th>TP</th><th>SL</th><th>SL?</th>"
                  "<th>Sold</th><th>Rem</th><th>Actions</th></tr>";
             for (const auto& t : trades)
             {
                 double sold = db.soldQuantityForParent(t.tradeId);
                 bool isBuy = (t.type == TradeType::Buy);
+                double grossCost = t.value * t.quantity;
+                double netCost = grossCost + t.buyFee + t.sellFee;
                 h << "<tr><td><a href='/horizons?tradeId=" << t.tradeId << "'>" << t.tradeId << "</a></td>"
                   << "<td>" << html::esc(t.symbol) << "</td>"
                   << "<td class='" << (isBuy ? "buy" : "sell") << "'>" << (isBuy ? "BUY" : "SELL") << "</td>"
                   << "<td>" << t.value << "</td><td>" << t.quantity << "</td>"
-                  << "<td>" << (t.value * t.quantity) << "</td>"
+                  << "<td>" << grossCost << "</td>"
+                  << "<td>" << t.buyFee << "</td><td>" << t.sellFee << "</td>"
+                  << "<td>" << netCost << "</td>"
                   << "<td>" << t.takeProfit << "</td><td>" << t.stopLoss << "</td>"
                   << "<td class='" << (t.stopLossActive ? "on" : "off") << "'>"
                   << (t.stopLossActive ? "ON" : "OFF") << "</td>"
@@ -278,16 +286,26 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
 
         h << "<div class='forms-row'>";
 
-        // Add trade form
+        // Add Buy trade form
         h << "<form class='card' method='POST' action='/add-trade'>"
-             "<h3>Add Trade</h3>"
+             "<h3>Add Buy Trade</h3>"
+             "<input type='hidden' name='type' value='Buy'>"
              "<label>Symbol</label><input type='text' name='symbol' required><br>"
-             "<label>Type</label><select name='type'><option value='Buy'>Buy</option>"
-             "<option value='CoveredSell'>CoveredSell</option></select><br>"
              "<label>Price</label><input type='number' name='price' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
-             "<label>Parent ID</label><input type='number' name='parentTradeId' value='-1'><br>"
-             "<button>Add Trade</button></form>";
+             "<label>Buy Fee</label><input type='number' name='buyFee' step='any' value='0'><br>"
+             "<button>Add Buy</button></form>";
+
+        // Add CoveredSell trade form
+        h << "<form class='card' method='POST' action='/add-trade'>"
+             "<h3>Add Sell Trade</h3>"
+             "<input type='hidden' name='type' value='CoveredSell'>"
+             "<label>Symbol</label><input type='text' name='symbol' required><br>"
+             "<label>Parent Buy ID</label><input type='number' name='parentTradeId' required><br>"
+             "<label>Price</label><input type='number' name='price' step='any' required><br>"
+             "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
+             "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='0'><br>"
+             "<button>Add Sell</button></form>";
 
         // Execute Buy form
         h << "<form class='card' method='POST' action='/execute-buy'>"
@@ -304,6 +322,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
              "<label>Trade ID</label><input type='number' name='tradeId' required><br>"
              "<label>Price</label><input type='number' name='price' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
+             "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='0'><br>"
              "<button>Execute Sell</button></form>";
 
         h << "</div>";
@@ -320,10 +339,28 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         t.type = (fv(f, "type") == "CoveredSell") ? TradeType::CoveredSell : TradeType::Buy;
         t.value = fd(f, "price");
         t.quantity = fd(f, "quantity");
-        t.parentTradeId = fi(f, "parentTradeId", -1);
         t.stopLossActive = false;
         t.shortEnabled = false;
         if (t.value <= 0 || t.quantity <= 0) { res.set_redirect("/trades?err=Price+and+quantity+must+be+positive", 303); return; }
+        if (t.type == TradeType::Buy)
+        {
+            t.parentTradeId = -1;
+            t.buyFee = fd(f, "buyFee");
+            t.sellFee = 0.0;
+        }
+        else
+        {
+            t.parentTradeId = fi(f, "parentTradeId", -1);
+            auto trades = db.loadTrades();
+            auto* parent = db.findTradeById(trades, t.parentTradeId);
+            if (!parent || parent->type != TradeType::Buy)
+            {
+                res.set_redirect("/trades?err=Parent+must+be+an+existing+Buy+trade", 303);
+                return;
+            }
+            t.buyFee = 0.0;
+            t.sellFee = fd(f, "sellFee");
+        }
         db.addTrade(t);
         res.set_redirect("/trades?msg=Trade+" + std::to_string(t.tradeId) + "+created", 303);
     });
@@ -365,8 +402,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         double walBal = db.loadWalletBalance();
         double needed = price * qty + fee;
         if (needed > walBal) { res.set_redirect("/trades?err=Insufficient+funds", 303); return; }
-        int bid = db.executeBuy(sym, price, qty);
-        if (fee > 0) db.withdraw(fee);
+        int bid = db.executeBuy(sym, price, qty, fee);
         res.set_redirect("/trades?msg=Buy+" + std::to_string(bid) + "+executed", 303);
     });
 
@@ -377,7 +413,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         int parentId = fi(f, "tradeId");
         double price = fd(f, "price");
         double qty = fd(f, "quantity");
-        int sid = db.executeSell(parentId, price, qty);
+        double fee = fd(f, "sellFee");
+        int sid = db.executeSell(parentId, price, qty, fee);
         if (sid < 0) { res.set_redirect("/trades?err=Sell+failed", 303); return; }
         res.set_redirect("/trades?msg=Sell+" + std::to_string(sid) + "+executed", 303);
     });
@@ -386,7 +423,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/wallet", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Wallet</h1>";
         double bal = db.loadWalletBalance();
@@ -433,7 +470,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/portfolio", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req);
         h << "<h1>Portfolio</h1>";
         auto trades = db.loadTrades();
@@ -473,7 +510,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/dca", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>DCA Tracker</h1>";
         auto trades = db.loadTrades();
         std::vector<std::string> seen;
@@ -507,7 +544,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/profit", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Profit Calculator</h1>"
              "<form class='card' method='POST' action='/profit'><h3>Calculate</h3>"
@@ -522,11 +559,12 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         for (const auto& t : trades) if (t.type == TradeType::Buy) { any = true; break; }
         if (any)
         {
-            h << "<h2>Buy Trades</h2><table><tr><th>ID</th><th>Symbol</th><th>Price</th><th>Qty</th></tr>";
+            h << "<h2>Buy Trades</h2><table><tr><th>ID</th><th>Symbol</th><th>Price</th><th>Qty</th><th>Buy Fee</th><th>Sell Fee</th></tr>";
             for (const auto& t : trades)
                 if (t.type == TradeType::Buy)
                     h << "<tr><td>" << t.tradeId << "</td><td>" << html::esc(t.symbol)
-                      << "</td><td>" << t.value << "</td><td>" << t.quantity << "</td></tr>";
+                      << "</td><td>" << t.value << "</td><td>" << t.quantity
+                      << "</td><td>" << t.buyFee << "</td><td>" << t.sellFee << "</td></tr>";
             h << "</table>";
         }
         res.set_content(html::wrap("Profit", h.str()), "text/html");
@@ -543,8 +581,14 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         auto trades = db.loadTrades();
         auto* tp = db.findTradeById(trades, id);
 
+        // Use stored fees when form values are 0
+        if (tp) {
+            if (buyFees == 0.0) buyFees = tp->buyFee;
+            if (sellFees == 0.0) sellFees = tp->sellFee;
+        }
+
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
 
         if (!tp) { h << "<div class='msg err'>Trade not found</div>"; }
         else
@@ -577,7 +621,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/pending-exits", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Pending Exits</h1>";
         auto orders = db.loadPendingExits();
@@ -614,7 +658,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/entry-points", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>Entry Points</h1>";
         auto pts = db.loadEntryPoints();
         if (pts.empty()) { h << "<p class='empty'>(no entry points)</p>"; }
@@ -641,7 +685,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/profit-history", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>Profit History</h1>";
         auto rows = db.loadProfitHistory();
         if (rows.empty()) { h << "<p class='empty'>(no history)</p>"; }
@@ -664,7 +708,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/params-history", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(4);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>Parameter History</h1>";
         auto rows = db.loadParamsHistory();
         if (rows.empty()) { h << "<p class='empty'>(no history)</p>"; }
@@ -697,7 +741,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/horizons", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>Horizon Levels</h1>"
              "<form class='card' method='GET' action='/horizons'><h3>View Horizons</h3>"
              "<label>Trade ID</label><input type='number' name='tradeId' value='"
@@ -742,7 +786,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/market-entry", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         double walBal = db.loadWalletBalance();
         h << "<h1>Market Entry Calculator</h1>"
@@ -798,7 +842,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         entryParams.portfolioPump = availableFunds;
 
         std::ostringstream h;
-        h << std::fixed << std::setprecision(4);
+        h << std::fixed << std::setprecision(17);
         if (sym.empty() || cur <= 0 || qty <= 0)
         {
             h << "<div class='msg err'>Symbol, price, and quantity are required</div>";
@@ -815,9 +859,9 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         db.saveParamsSnapshot(
             TradeDatabase::ParamsRow::from("entry", sym, -1, cur, qty, p, risk));
 
-        h << "<h1>Entry Strategy: " << html::esc(sym) << " @ " << std::setprecision(2) << cur << "</h1>";
+        h << "<h1>Entry Strategy: " << html::esc(sym) << " @ " << std::setprecision(17) << cur << "</h1>";
 
-        h << std::fixed << std::setprecision(4);
+        h << std::fixed << std::setprecision(17);
         h << "<div class='row'>"
              "<div class='stat'><div class='lbl'>Overhead</div><div class='val'>" << (overhead * 100) << "%</div></div>"
              "<div class='stat'><div class='lbl'>Surplus</div><div class='val'>" << (p.surplusRate * 100) << "%</div></div>"
@@ -825,7 +869,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
              "<div class='stat'><div class='lbl'>Pos Delta</div><div class='val'>" << (posDelta * 100) << "%</div></div>"
              "</div>";
 
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<div class='row'>"
              "<div class='stat'><div class='lbl'>Pump</div><div class='val'>" << p.portfolioPump << "</div></div>"
              "<div class='stat'><div class='lbl'>Wallet</div><div class='val'>" << walBal << "</div></div>"
@@ -946,7 +990,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         std::vector<TradeDatabase::EntryPoint> entryPoints;
 
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>Entry Execution: " << html::esc(sym) << "</h1>";
         if (p.portfolioPump > 0)
             h << "<div class='msg'>Deposited pump " << p.portfolioPump
@@ -1003,8 +1047,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                 cost = el.entryPrice * buyQty;
             }
 
-            int bid = db.executeBuy(sym, el.entryPrice, buyQty);
-            if (buyFee > 0) db.withdraw(buyFee);
+            int bid = db.executeBuy(sym, el.entryPrice, buyQty, buyFee);
 
             ep.traded = true;
             ep.linkedTradeId = bid;
@@ -1054,7 +1097,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/exit-strategy", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Exit Strategy Calculator</h1>"
              "<form class='card' method='POST' action='/exit-strategy'><h3>Parameters</h3>"
@@ -1076,7 +1119,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         if (any)
         {
             h << "<h2>Buy Trades</h2><table><tr><th>ID</th><th>Symbol</th><th>Price</th>"
-                 "<th>Qty</th><th>Sold</th><th>Pending</th><th>Remaining</th></tr>";
+                 "<th>Qty</th><th>Buy Fee</th><th>Sold</th><th>Pending</th><th>Remaining</th></tr>";
             auto pending = db.loadPendingExits();
             for (const auto& t : trades)
             {
@@ -1087,6 +1130,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                     if (pe.tradeId == t.tradeId) pQty += pe.sellQty;
                 h << "<tr><td>" << t.tradeId << "</td><td>" << html::esc(t.symbol) << "</td>"
                   << "<td>" << t.value << "</td><td>" << t.quantity << "</td>"
+                  << "<td>" << t.buyFee << "</td>"
                   << "<td>" << sold << "</td><td>" << pQty << "</td>"
                   << "<td>" << (t.quantity - sold - pQty) << "</td></tr>";
             }
@@ -1124,7 +1168,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         }
 
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
 
         if (ids.empty()) { h << "<div class='msg err'>No trade IDs entered</div>"; }
         else
@@ -1175,7 +1219,9 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                 }
 
                 Trade tempTrade = *tp;
+                double remainFrac = (tp->quantity > 0) ? remaining / tp->quantity : 0.0;
                 tempTrade.quantity = remaining;
+                tempTrade.buyFee = tp->buyFee * remainFrac;
                 auto levels = ExitStrategyCalculator::generate(tempTrade, p, risk, exitFrac, steep);
                 double clampedFrac = (exitFrac < 0) ? 0 : (exitFrac > 1) ? 1 : exitFrac;
                 double sellableQty = remaining * clampedFrac;
@@ -1194,7 +1240,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                      "<th>Fraction</th><th>Value</th><th>Gross</th>"
                      "<th>Buy Fee</th><th>Sell Fee</th></tr>";
                 std::ostringstream hiddenFields;
-                hiddenFields << std::fixed << std::setprecision(10);
+                hiddenFields << std::fixed << std::setprecision(17);
                 for (const auto& el : levels)
                 {
                     if (el.sellQty <= 0) continue;
@@ -1206,9 +1252,9 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                       << "<td>" << el.sellValue << "</td>"
                       << "<td>" << el.grossProfit << "</td>"
                       << "<td><input type='number' name='buyFee_" << levelCounter
-                      << "' step='any' value='0' style='width:80px;'></td>"
+                      << "' step='any' value='" << el.levelBuyFee << "' style='width:80px;'></td>"
                       << "<td><input type='number' name='sellFee_" << levelCounter
-                      << "' step='any' value='0' style='width:80px;'></td></tr>";
+                      << "' step='any' value='" << el.levelSellFee << "' style='width:80px;'></td></tr>";
                     // hidden fields emitted after the table to keep HTML valid
                     hiddenFields << "<input type='hidden' name='tid_" << levelCounter << "' value='" << tp->tradeId << "'>"
                       << "<input type='hidden' name='sym_" << levelCounter << "' value='" << html::esc(tp->symbol) << "'>"
@@ -1228,7 +1274,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
 
                 db.saveParamsSnapshot(
                     TradeDatabase::ParamsRow::from("exit", tp->symbol, tp->tradeId,
-                                                   tp->value, tp->quantity, p, risk));
+                                                   tp->value, tp->quantity, p, risk,
+                                                   tp->buyFee, tp->sellFee));
             }
 
             h << "<input type='hidden' name='levelCount' value='" << levelCounter << "'>";
@@ -1262,7 +1309,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         };
 
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>Exit Execution</h1>";
 
         if (levelCount <= 0)
@@ -1351,7 +1398,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                  "<th>Qty</th><th>Sell ID</th><th>Status</th></tr>";
             for (const auto& eo : hitOrders)
             {
-                int sid = db.executeSell(eo.tradeId, eo.triggerPrice, eo.sellQty);
+                int sid = db.executeSell(eo.tradeId, eo.triggerPrice, eo.sellQty, eo.sellFee);
                 if (sid >= 0)
                 {
                     h << "<tr><td>" << eo.tradeId << "</td>"
@@ -1428,7 +1475,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/edit-trade", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         int id = 0;
         try { id = std::stoi(req.get_param_value("id")); } catch (...) {}
@@ -1437,24 +1484,31 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         if (!tp) { h << "<h1>Edit Trade</h1><div class='msg err'>Trade not found</div>"; }
         else
         {
+            bool isBuy = (tp->type == TradeType::Buy);
             h << "<h1>Edit Trade #" << tp->tradeId << "</h1>"
                  "<form class='card' method='POST' action='/edit-trade'>"
                  "<input type='hidden' name='id' value='" << tp->tradeId << "'>"
                  "<label>Symbol</label><input type='text' name='symbol' value='" << html::esc(tp->symbol) << "'><br>"
                  "<label>Type</label><select name='type'>"
-                 "<option value='Buy'" << (tp->type == TradeType::Buy ? " selected" : "") << ">Buy</option>"
-                 "<option value='CoveredSell'" << (tp->type == TradeType::CoveredSell ? " selected" : "") << ">CoveredSell</option>"
+                 "<option value='Buy'" << (isBuy ? " selected" : "") << ">Buy</option>"
+                 "<option value='CoveredSell'" << (!isBuy ? " selected" : "") << ">CoveredSell</option>"
                  "</select><br>"
                  "<label>Price</label><input type='number' name='price' step='any' value='" << tp->value << "'><br>"
-                 "<label>Quantity</label><input type='number' name='quantity' step='any' value='" << tp->quantity << "'><br>"
-                 "<label>Parent ID</label><input type='number' name='parentTradeId' value='" << tp->parentTradeId << "'><br>"
-                 "<label>Take Profit</label><input type='number' name='takeProfit' step='any' value='" << tp->takeProfit << "'><br>"
-                 "<label>Stop Loss</label><input type='number' name='stopLoss' step='any' value='" << tp->stopLoss << "'><br>"
-                 "<label>SL Active</label><select name='stopLossActive'>"
-                 "<option value='0'" << (!tp->stopLossActive ? " selected" : "") << ">OFF</option>"
-                 "<option value='1'" << (tp->stopLossActive ? " selected" : "") << ">ON</option>"
-                 "</select><br><br>"
-                 "<button>Save Changes</button></form>";
+                 "<label>Quantity</label><input type='number' name='quantity' step='any' value='" << tp->quantity << "'><br>";
+            if (!isBuy)
+                h << "<label>Parent Buy ID</label><input type='number' name='parentTradeId' value='" << tp->parentTradeId << "'><br>";
+            if (isBuy)
+                h << "<label>Buy Fee</label><input type='number' name='buyFee' step='any' value='" << tp->buyFee << "'><br>";
+            else
+                h << "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='" << tp->sellFee << "'><br>";
+            if (isBuy)
+                h << "<label>Take Profit</label><input type='number' name='takeProfit' step='any' value='" << tp->takeProfit << "'><br>"
+                     "<label>Stop Loss</label><input type='number' name='stopLoss' step='any' value='" << tp->stopLoss << "'><br>"
+                     "<label>SL Active</label><select name='stopLossActive'>"
+                     "<option value='0'" << (!tp->stopLossActive ? " selected" : "") << ">OFF</option>"
+                     "<option value='1'" << (tp->stopLossActive ? " selected" : "") << ">ON</option>"
+                     "</select><br>";
+            h << "<br><button>Save Changes</button></form>";
         }
         h << "<br><a class='btn' href='/trades'>Back to Trades</a>";
         res.set_content(html::wrap("Edit Trade", h.str()), "text/html");
@@ -1476,8 +1530,25 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         if (price > 0) tp->value = price;
         double qty = fd(f, "quantity");
         if (qty > 0) tp->quantity = qty;
-        int pid = fi(f, "parentTradeId", tp->parentTradeId);
-        tp->parentTradeId = pid;
+        if (tp->type == TradeType::Buy)
+        {
+            tp->parentTradeId = -1;
+            tp->buyFee = fd(f, "buyFee", tp->buyFee);
+            tp->sellFee = 0.0;
+        }
+        else
+        {
+            int pid = fi(f, "parentTradeId", tp->parentTradeId);
+            auto* parent = db.findTradeById(trades, pid);
+            if (!parent || parent->type != TradeType::Buy)
+            {
+                res.set_redirect("/trades?err=Parent+must+be+an+existing+Buy+trade", 303);
+                return;
+            }
+            tp->parentTradeId = pid;
+            tp->buyFee = 0.0;
+            tp->sellFee = fd(f, "sellFee", tp->sellFee);
+        }
         tp->takeProfit = fd(f, "takeProfit", tp->takeProfit);
         tp->stopLoss = fd(f, "stopLoss", tp->stopLoss);
         auto slStr = fv(f, "stopLossActive");
@@ -1490,7 +1561,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/generate-horizons", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Generate TP/SL Horizons</h1>";
 
@@ -1513,10 +1584,10 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
 
         if (any)
         {
-            h << "<h3 style='margin-top:12px;'>Per-Trade Fees</h3>"
+            h << "<h3 style='margin-top:12px;'>Buy Trades</h3>"
                  "<table><tr><th>ID</th><th>Symbol</th><th>Price</th>"
                  "<th>Qty</th><th>Cost</th><th>TP</th><th>SL</th>"
-                 "<th>Buy Fee</th><th>Sell Fee</th></tr>";
+                 "<th>Buy Fee</th></tr>";
             for (const auto& t : trades)
             {
                 if (t.type != TradeType::Buy) continue;
@@ -1524,10 +1595,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                   << "</td><td>" << t.value << "</td><td>" << t.quantity
                   << "</td><td>" << (t.value * t.quantity) << "</td><td>" << t.takeProfit
                   << "</td><td>" << t.stopLoss << "</td>"
-                  << "<td><input type='number' name='buyFee_" << t.tradeId
-                  << "' step='any' value='0' style='width:80px;'></td>"
-                  << "<td><input type='number' name='sellFee_" << t.tradeId
-                  << "' step='any' value='0' style='width:80px;'></td></tr>";
+                  << "<td>" << t.buyFee << "</td></tr>";
             }
             h << "</table>";
         }
@@ -1576,7 +1644,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         }
 
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
 
         if (buyTrades.empty())
         {
@@ -1587,10 +1655,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
             h << "<h1>Horizons for " << html::esc(sym) << "</h1>";
             for (auto* bt : buyTrades)
             {
-                // per-trade fees from form fields
+                // per-trade horizon generation
                 HorizonParams tp = baseP;
-                tp.buyFees = fd(f, "buyFee_" + std::to_string(bt->tradeId));
-                tp.sellFees = fd(f, "sellFee_" + std::to_string(bt->tradeId));
 
                 auto levels = MultiHorizonEngine::generate(*bt, tp);
                 MultiHorizonEngine::applyFirstHorizon(*bt, levels, false);
@@ -1598,19 +1664,20 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                 db.saveHorizonLevels(sym, bt->tradeId, levels);
                 db.saveParamsSnapshot(
                     TradeDatabase::ParamsRow::from("horizon", sym, bt->tradeId,
-                                                   bt->value, bt->quantity, tp));
+                                                   bt->value, bt->quantity, tp, 0.0,
+                                                   bt->buyFee, bt->sellFee));
 
                 double overhead = MultiHorizonEngine::computeOverhead(*bt, tp);
                 double eo = MultiHorizonEngine::effectiveOverhead(*bt, tp);
                 h << "<h2>Trade #" << bt->tradeId
                   << " (price=" << bt->value << " qty=" << bt->quantity
-                  << " buyFee=" << tp.buyFees << " sellFee=" << tp.sellFees << ")</h2>"
+                  << " buyFee=" << bt->buyFee << ")</h2>"
                   << "<div class='row'>"
                      "<div class='stat'><div class='lbl'>Overhead</div><div class='val'>"
-                  << std::fixed << std::setprecision(4) << (overhead * 100) << "%</div></div>"
+                  << std::fixed << std::setprecision(17) << (overhead * 100) << "%</div></div>"
                      "<div class='stat'><div class='lbl'>Effective</div><div class='val'>"
                   << (eo * 100) << "%</div></div></div>"
-                  << std::fixed << std::setprecision(2);
+                  << std::fixed << std::setprecision(17);
                 h << "<table><tr><th>Lvl</th><th>Take Profit</th><th>TP/unit</th>"
                      "<th>Stop Loss</th><th>SL/unit</th><th>SL?</th></tr>";
                 for (const auto& lv : levels)
@@ -1636,7 +1703,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     svr.Get("/price-check", [&](const httplib::Request& req, httplib::Response& res) {
         std::lock_guard<std::mutex> lk(dbMutex);
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << html::msgBanner(req) << html::errBanner(req);
         h << "<h1>Price Check (TP/SL vs Market)</h1>";
 
@@ -1684,7 +1751,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
         };
 
         std::ostringstream h;
-        h << std::fixed << std::setprecision(2);
+        h << std::fixed << std::setprecision(17);
         h << "<h1>Price Check Results</h1>";
 
         // re-show the price form pre-filled
@@ -1701,7 +1768,7 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
 
         // results table
         h << "<table><tr><th>ID</th><th>Symbol</th><th>Entry</th><th>Qty</th>"
-             "<th>Market</th><th>Gross P&amp;L</th>"
+             "<th>Market</th><th>Gross P&amp;L</th><th>Net P&amp;L</th><th>ROI%</th>"
              "<th>TP Price</th><th>TP?</th><th>SL Price</th><th>SL?</th></tr>";
         struct Trigger { int id; std::string sym; double price; double qty; std::string tag; };
         std::vector<Trigger> triggers;
@@ -1714,6 +1781,10 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
             double cur = priceFor(t.symbol);
             if (cur <= 0) continue;
             double gross = (cur - t.value) * remaining;
+            double remainFrac = (t.quantity > 0) ? remaining / t.quantity : 0.0;
+            double net = gross - t.buyFee * remainFrac;
+            double cost = (t.value * remaining) + (t.buyFee * remainFrac);
+            double roi = (cost != 0.0) ? (net / cost) * 100.0 : 0.0;
             double tpPrice = 0, slPrice = 0;
             bool tpHit = false, slHit = false;
             if (t.takeProfit > 0) { tpPrice = t.takeProfit / t.quantity; tpHit = (cur >= tpPrice); }
@@ -1724,6 +1795,8 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
               << "<td>" << t.value << "</td><td>" << remaining << "</td>"
               << "<td>" << cur << "</td>"
               << "<td class='" << (gross >= 0 ? "buy" : "sell") << "'>" << gross << "</td>"
+              << "<td class='" << (net >= 0 ? "buy" : "sell") << "'>" << net << "</td>"
+              << "<td class='" << (roi >= 0 ? "buy" : "sell") << "'>" << roi << "</td>"
               << "<td>" << tpPrice << "</td>"
               << "<td class='" << (tpHit ? "buy" : "off") << "'>" << (tpHit ? "HIT" : "-") << "</td>"
               << "<td>" << slPrice << "</td>"
@@ -1738,9 +1811,9 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
                 bool htpHit = (cur >= htp);
                 bool hslHit = (lv.stopLossActive && hsl > 0 && cur <= hsl);
                 h << "<tr style='color:#8b949e;'><td></td><td>[" << lv.index << "]</td>"
-                  << "<td></td><td></td><td></td><td></td>"
+                  << "<td></td><td></td><td></td><td></td><td></td><td></td>"
                   << "<td>" << htp << "</td>"
-                  << "<td class='" << (htpHit ? "buy" : "off") << "'>" << (htpHit ? "HIT" : (htp > 0 ? std::to_string(htp - cur).substr(0, 8) + " away" : "-")) << "</td>"
+                  << "<td class='" << (htpHit ? "buy" : "off") << "'>" << (htpHit ? "HIT" : (htp > 0 ? std::to_string(htp - cur) + " away" : "-")) << "</td>"
                   << "<td>" << hsl << "</td>"
                   << "<td class='" << (hslHit ? "sell" : "off") << "'>";
                 if (hsl > 0 && lv.stopLossActive)

@@ -67,12 +67,12 @@ public:
             el.costCoverage = static_cast<double>(i + 1);
             el.entryPrice   = currentPrice * (1.0 - factor);
             el.breakEven    = el.entryPrice * (1.0 + eo);
-            el.potentialNet = (currentPrice - el.entryPrice) * quantity
-                            - p.buyFees - p.sellFees;
 
             el.fundingFraction = (weightSum != 0.0) ? weights[i] / weightSum : 0.0;
             el.funding         = p.portfolioPump * el.fundingFraction;
             el.fundingQty      = (el.entryPrice > 0.0) ? el.funding / el.entryPrice : 0.0;
+
+            el.potentialNet = (currentPrice - el.entryPrice) * el.fundingQty;
 
             levels.push_back(el);
         }

@@ -29,4 +29,10 @@ public:
 
         return r;
     }
+
+    // Overload using stored fees from the trade
+    static ProfitResult calculate(const Trade& trade, double currentPrice)
+    {
+        return calculate(trade, currentPrice, trade.buyFee, trade.sellFee);
+    }
 };

@@ -6,7 +6,7 @@
 
 // TP/SL horizon formula:
 //
-//   overhead = ((sellFees + buyFees) * feeHedgingCoefficient + feeSpread * deltaTime)
+//   overhead = (feeSpread * feeHedgingCoefficient * deltaTime)
 //            * symbolCount
 //            / ((price / quantity) * portfolioPump + coefficientK)
 //
@@ -16,22 +16,24 @@
 //   TP[i] = entry * qty * (1 + effective * (i + 1))
 //   SL[i] = entry * qty * (1 - effective * (i + 1))
 //
-// overhead scales fee costs by symbolCount and normalises against a
+// overhead scales fee spread by symbolCount and normalises against a
 // denominator built from the per-unit price ratio and pump capital.
+// feeHedgingCoefficient is a safety multiplier on the fee spread.
 // coefficientK is an additive offset in the denominator.
 // positionDelta is the portfolio weight of this trade.
 // surplusRate is pure profit margin on top of break-even.
 // horizonCount controls how many levels are generated.
+//
+// Absolute fees (buyFee / sellFee) are tracked per-trade on Trade
+// and per-level on ExitLevel — not in HorizonParams.
 
 struct HorizonParams
 {
-    double buyFees                    = 0.0;   // specified per calculation
-    double sellFees                   = 0.0;   // specified per calculation
     double feeHedgingCoefficient      = 1.0;
     double portfolioPump              = 0.0;   // portfolio pump for time t
     int    symbolCount                = 1;     // number of symbols in portfolio
     double coefficientK               = 0.0;
-    double feeSpread                  = 0.0;   // fee spread / slippage for this symbol
+    double feeSpread                  = 0.0;   // fee spread / slippage rate
     double deltaTime                  = 1.0;   // time delta
     double surplusRate                = 0.0;   // profit margin above break-even (e.g. 0.02 = 2%)
     int    horizonCount               = 1;     // how many TP/SL levels to generate
@@ -52,11 +54,8 @@ class MultiHorizonEngine
 public:
     static double computeOverhead(double price, double quantity, const HorizonParams& p)
     {
-        double feeComponent =
-            (p.sellFees + p.buyFees) * p.feeHedgingCoefficient;
-        double spreadComponent = p.feeSpread * p.deltaTime;
-        double numerator = (feeComponent + spreadComponent)
-                         * static_cast<double>(p.symbolCount);
+        double feeComponent = p.feeSpread * p.feeHedgingCoefficient * p.deltaTime;
+        double numerator = feeComponent * static_cast<double>(p.symbolCount);
         double pricePerQty = (quantity > 0.0) ? price / quantity : 0.0;
         double denominator = pricePerQty * p.portfolioPump + p.coefficientK;
         return (denominator != 0.0) ? numerator / denominator : 0.0;
