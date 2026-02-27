@@ -730,13 +730,553 @@ All formulas mirror. TP targets decrease below entry. SL targets increase above 
 | $q_i^{\text{sell}}$ | §6.2 | Exit quantity per level |
 | buffer | §7.2 | Downtrend TP multiplier |
 | Coverage | §11.4 | Fee hedging verification |
+| $\partial\hat\sigma/\partial t$, $\partial\hat\sigma/\partial\alpha$ | §15.1 | Sigmoid gradient primitives |
+| $\partial\text{OH}/\partial T$ | §15.2 | Capital-overhead sensitivity |
+| $\partial\text{EO}/\partial s$ | §15.3 | Surplus linearity ($= f_h \Delta t$, constant) |
+| $\partial\text{TP}/\partial r$ | §15.6 | Risk warps TP distribution |
+| $\partial\Pi/\partial s$ | §15.7 | Profit-surplus sensitivity |
+| $dT_c/d\theta$ | §15.9 | Chain recurrence (BPTT structure) |
+| $J_1 \ldots J_5$ | §16.2 | Optimisation objectives |
 
 ---
 
-## 15. Conclusion
+## 15. Partial Derivative Catalog
+
+Every equation in the system is differentiable with respect to its continuous parameters. This section derives the partial derivatives needed for gradient-based optimisation.
+
+### 15.1 Sigmoid Primitives
+
+The logistic sigmoid and its derivative:
+
+$$
+\sigma(x) = \frac{1}{1 + e^{-x}}, \qquad \sigma'(x) = \sigma(x)\bigl(1 - \sigma(x)\bigr)
+$$
+
+For the normalised sigmoid $\hat\sigma_\alpha(t)$, define intermediate quantities:
+
+$$
+u = \alpha(t - 0.5), \qquad v = \sigma(u), \qquad S = \sigma_1 - \sigma_0
+$$
+
+where $\sigma_0 = \sigma(-\alpha/2)$ and $\sigma_1 = \sigma(\alpha/2)$.
+
+**Derivative with respect to $t$** (input position):
+
+$$
+\boxed{
+\frac{\partial \hat\sigma}{\partial t} = \frac{\alpha \cdot v(1-v)}{S}
+}
+$$
+
+**Derivative with respect to $\alpha$** (steepness):
+
+$$
+\frac{\partial v}{\partial \alpha} = (t - 0.5) \cdot v(1-v)
+$$
+
+$$
+\frac{\partial \sigma_0}{\partial \alpha} = -\tfrac{1}{2}\,\sigma_0(1-\sigma_0), \qquad
+\frac{\partial \sigma_1}{\partial \alpha} = \tfrac{1}{2}\,\sigma_1(1-\sigma_1)
+$$
+
+$$
+\frac{\partial S}{\partial \alpha} = \tfrac{1}{2}\bigl[\sigma_1(1-\sigma_1) + \sigma_0(1-\sigma_0)\bigr]
+$$
+
+By the quotient rule on $\hat\sigma = (v - \sigma_0)/S$:
+
+$$
+\boxed{
+\frac{\partial \hat\sigma}{\partial \alpha} =
+\frac{(t - 0.5)\,v(1-v) + \tfrac{1}{2}\,\sigma_0(1-\sigma_0)}{S}
+\;-\;
+\hat\sigma \cdot \frac{\sigma_1(1-\sigma_1) + \sigma_0(1-\sigma_0)}{2S}
+}
+$$
+
+**Key property:** At $t = 0.5$, $\partial\hat\sigma/\partial\alpha$ simplifies because $v = \sigma(0) = 0.5$ and $v(1-v) = 0.25$. At the midpoint, steepness changes have minimal effect on the output (the sigmoid crosses 0.5 regardless of $\alpha$).
+
+### 15.2 Overhead Derivatives
+
+Let $D = \frac{P}{q} \cdot T + K$ (the denominator). Then $\text{OH} = \frac{\mathcal{F} \cdot n_s}{D}$ where $\mathcal{F} = f_s \cdot f_h \cdot \Delta t$.
+
+**Numerator parameters** (linear in numerator — derivative is $\text{OH}$ divided by the variable):
+
+$$
+\frac{\partial\,\text{OH}}{\partial f_s} = \frac{\text{OH}}{f_s}, \qquad
+\frac{\partial\,\text{OH}}{\partial f_h} = \frac{\text{OH}}{f_h}, \qquad
+\frac{\partial\,\text{OH}}{\partial \Delta t} = \frac{\text{OH}}{\Delta t}, \qquad
+\frac{\partial\,\text{OH}}{\partial n_s} = \frac{\text{OH}}{n_s}
+$$
+
+**Denominator parameters** (inverse relationship — overhead *decreases* as these grow):
+
+$$
+\boxed{
+\frac{\partial\,\text{OH}}{\partial T} = -\frac{\text{OH}}{D} \cdot \frac{P}{q}
+}
+$$
+
+$$
+\frac{\partial\,\text{OH}}{\partial K} = -\frac{\text{OH}}{D}, \qquad
+\frac{\partial\,\text{OH}}{\partial P} = -\frac{\text{OH}}{D} \cdot \frac{T}{q}, \qquad
+\frac{\partial\,\text{OH}}{\partial q} = \frac{\text{OH}}{D} \cdot \frac{P \cdot T}{q^2}
+$$
+
+**Interpretation:** $\partial\text{OH}/\partial T < 0$ always — more capital always reduces overhead. The rate of reduction is $\text{OH} \cdot (P/q) / D$, which itself decreases as $T$ grows (diminishing returns).
+
+### 15.3 Effective Overhead Derivatives
+
+Since $\text{EO} = \text{OH} + (s + f_s) \cdot f_h \cdot \Delta t$:
+
+$$
+\boxed{
+\frac{\partial\,\text{EO}}{\partial s} = f_h \cdot \Delta t
+}
+$$
+
+This is **constant** — surplus rate has a linear effect on EO regardless of other parameters. This makes surplus the most predictable tuning knob.
+
+$$
+\frac{\partial\,\text{EO}}{\partial f_s} = \frac{\text{OH}}{f_s} + f_h \cdot \Delta t, \qquad
+\frac{\partial\,\text{EO}}{\partial f_h} = \frac{\text{OH}}{f_h} + (s + f_s) \cdot \Delta t
+$$
+
+$$
+\frac{\partial\,\text{EO}}{\partial T} = \frac{\partial\,\text{OH}}{\partial T} = -\frac{\text{OH}}{D} \cdot \frac{P}{q}
+$$
+
+$$
+\frac{\partial\,\text{EO}}{\partial \Delta t} = \frac{\text{OH}}{\Delta t} + (s + f_s) \cdot f_h
+$$
+
+### 15.4 Entry Price Derivatives
+
+$P_e^{(i)} = P_{\text{low}} + \hat\sigma(t_i) \cdot (P_{\text{high}} - P_{\text{low}})$
+
+$$
+\frac{\partial P_e}{\partial \alpha} = \frac{\partial\hat\sigma}{\partial\alpha} \cdot (P_{\text{high}} - P_{\text{low}})
+$$
+
+In range mode where $P_{\text{low}} = P - R_{\text{below}}$, $P_{\text{high}} = P + R_{\text{above}}$:
+
+$$
+\boxed{
+\frac{\partial P_e}{\partial R_{\text{below}}} = \hat\sigma_i - 1 \leq 0
+}
+$$
+
+$$
+\frac{\partial P_e}{\partial R_{\text{above}}} = \hat\sigma_i \geq 0
+$$
+
+**Interpretation:** Increasing range below *lowers* all entry prices (more discount). Increasing range above *raises* all entry prices. The effect is modulated by $\hat\sigma_i$ — entries near $P_{\text{low}}$ are affected more by range below, entries near $P_{\text{high}}$ more by range above.
+
+### 15.5 Funding Allocation Derivatives
+
+Weight per level: $w_i = (1-r) \cdot n_i + r \cdot (1 - n_i)$ where $n_i = \hat\sigma(t_i)$.
+
+$$
+\boxed{
+\frac{\partial w_i}{\partial r} = 1 - 2n_i
+}
+$$
+
+This changes sign at $n_i = 0.5$. For levels above the midpoint ($n_i > 0.5$), increasing risk *decreases* their weight. For levels below ($n_i < 0.5$), increasing risk *increases* their weight. At $r = 0.5$, all weights are 0.5 and all funding is uniform.
+
+$$
+\frac{\partial w_i}{\partial \alpha} = (1 - 2r) \cdot \frac{\partial n_i}{\partial \alpha}
+$$
+
+For the normalised funding fraction $F_i = w_i / W$ where $W = \sum_j w_j$:
+
+$$
+\frac{\partial F_i}{\partial r} = \frac{(1 - 2n_i) \cdot W - w_i \cdot \sum_j (1 - 2n_j)}{W^2}
+$$
+
+**Special case** at $r = 0.5$: All $w_j = 0.5$, so $W = N/2$, $F_i = 1/N$, and the gradient simplifies to:
+
+$$
+\left.\frac{\partial F_i}{\partial r}\right|_{r=0.5} = \frac{2(1 - 2n_i)}{N} - \frac{2}{N^2}\sum_j(1 - 2n_j)
+$$
+
+### 15.6 Take-Profit Derivatives (levelTP, LONG)
+
+$\text{TP}_i = \text{TP}_{\min} + n_i \cdot (\text{TP}_{\max} - \text{TP}_{\min})$
+
+where $\text{TP}_{\min} = P_e \cdot (1 + \text{EO} + R_{\min})$, $\text{TP}_{\max} = P_{\text{ref}} \cdot (1 + R_{\max})$, and $n_i = (1-r)\hat\sigma_{\alpha'}(t_i) + r(1 - \hat\sigma_{\alpha'}(t_i))$.
+
+**With respect to surplus rate:**
+
+$$
+\boxed{
+\frac{\partial\,\text{TP}_i}{\partial s} = (1 - n_i) \cdot P_e \cdot f_h \cdot \Delta t
+}
+$$
+
+For levels near the TP floor ($n_i \approx 0$), the full $P_e \cdot f_h \cdot \Delta t$ sensitivity applies. For levels near the ceiling ($n_i \approx 1$), surplus has no effect (the ceiling is determined by $R_{\max}$, not surplus).
+
+**With respect to risk bounds:**
+
+$$
+\frac{\partial\,\text{TP}_i}{\partial R_{\max}} = n_i \cdot P_{\text{ref}}, \qquad
+\frac{\partial\,\text{TP}_i}{\partial R_{\min}} = (1 - n_i) \cdot P_e
+$$
+
+**With respect to risk coefficient:**
+
+$$
+\boxed{
+\frac{\partial\,\text{TP}_i}{\partial r} = (\text{TP}_{\max} - \text{TP}_{\min}) \cdot (1 - 2\hat\sigma_{\alpha'}(t_i))
+}
+$$
+
+This has the same sign-change structure as the funding derivatives — the TP sigmoid warps in mirror with funding when risk changes.
+
+**With respect to steepness** (through TP sigmoid, using half-steepness $\alpha' = \alpha/2$):
+
+$$
+\frac{\partial\,\text{TP}_i}{\partial \alpha} = (\text{TP}_{\max} - \text{TP}_{\min}) \cdot (1 - 2r) \cdot \frac{1}{2}\frac{\partial\hat\sigma_{\alpha'}}{\partial \alpha'}
+$$
+
+The factor of $1/2$ comes from $\alpha' = \alpha/2$.
+
+### 15.7 Per-Level Profit Derivatives
+
+Gross profit at level $i$: $\Pi_i = (\text{TP}_i - P_e^{(i)}) \cdot q_i$
+
+where $q_i = T_{\text{avail}} \cdot F_i \,/\, P_e^{(i)}$.
+
+By the product rule:
+
+$$
+\frac{\partial \Pi_i}{\partial \theta} =
+\frac{\partial\,\text{TP}_i}{\partial \theta} \cdot q_i
++ (\text{TP}_i - P_e^{(i)}) \cdot \frac{\partial q_i}{\partial \theta}
+- \frac{\partial P_e^{(i)}}{\partial \theta} \cdot q_i
+$$
+
+**With respect to surplus (TP moves, entry and qty stay fixed):**
+
+$$
+\boxed{
+\frac{\partial \Pi_i}{\partial s} = q_i \cdot (1 - n_i) \cdot P_e \cdot f_h \cdot \Delta t
+= \text{Funding}_i \cdot (1 - n_i) \cdot f_h \cdot \Delta t
+}
+$$
+
+This is always positive — increasing surplus always increases profit per level. The effect is strongest at the TP floor levels and vanishes at the ceiling.
+
+**With respect to risk (both entry price, funding, and TP change):**
+
+The risk derivative involves three coupled terms — entry redistribution, funding reallocation, and TP warping. This is the most complex gradient and the one where optimisation is most valuable.
+
+### 15.8 Downtrend Buffer Derivatives
+
+Buffer $= 1 + n_d \cdot \text{pc}$ where $\text{pc} = R_{\min} + \hat\sigma_{\alpha_d}(t) \cdot (\text{upper} - R_{\min})$.
+
+**With respect to $R_{\min}$:**
+
+$$
+\frac{\partial\,\text{buffer}}{\partial R_{\min}} = n_d \cdot (1 - \hat\sigma_{\alpha_d}(t))
+$$
+
+**With respect to $R_{\max}$** (when upper $= R_{\max}$):
+
+$$
+\frac{\partial\,\text{buffer}}{\partial R_{\max}} = n_d \cdot \hat\sigma_{\alpha_d}(t)
+$$
+
+**With respect to pump capital $T$** (through position delta $\delta = Pq/T$):
+
+$$
+\frac{\partial \delta}{\partial T} = -\frac{Pq}{T^2} = -\frac{\delta}{T}
+$$
+
+$$
+\frac{\partial t}{\partial \delta} = \frac{1}{(\delta + 1)^2}
+$$
+
+The full gradient chains through $\delta \to t \to \hat\sigma \to \text{pc} \to \text{buffer}$ and also through $\delta \to \alpha_d \to \hat\sigma$, creating a coupled nonlinear sensitivity.
+
+### 15.9 Chain Compounding Derivatives
+
+Capital at cycle $c+1$: $T_{c+1} = T_c + \Pi_c - \text{Sav}_c$ where $\text{Sav}_c = \Pi_c \cdot s_{\text{save}}$, so $T_{c+1} = T_c + \Pi_c(1 - s_{\text{save}})$.
+
+**With respect to savings rate:**
+
+$$
+\boxed{
+\frac{\partial T_{c+1}}{\partial s_{\text{save}}} = -\Pi_c
+}
+$$
+
+More savings directly reduces next-cycle capital, dollar for dollar.
+
+**Recursive chain rule for multi-cycle profit:**
+
+Total chain profit $J = \sum_{c=0}^{C-1} \Pi_c(\theta, T_c)$ where $T_c$ depends on all previous cycles:
+
+$$
+\frac{dJ}{d\theta} = \sum_{c=0}^{C-1} \left[
+\frac{\partial \Pi_c}{\partial \theta}
++ \frac{\partial \Pi_c}{\partial T_c} \cdot \frac{dT_c}{d\theta}
+\right]
+$$
+
+$$
+\frac{dT_c}{d\theta} = (1 - s_{\text{save}}) \cdot \left[
+\frac{\partial \Pi_{c-1}}{\partial \theta}
++ \frac{\partial \Pi_{c-1}}{\partial T_{c-1}} \cdot \frac{dT_{c-1}}{d\theta}
+\right]
+$$
+
+This is a **recurrence relation** — the gradient at cycle $c$ depends on the gradient at cycle $c-1$. This is structurally identical to backpropagation through time (BPTT) in recurrent neural networks. The chain's cycle sequence is the "time axis" and each cycle's serial plan is a "layer".
+
+**With respect to surplus (through multiple cycles):**
+
+$$
+\frac{dJ}{ds} = \sum_{c=0}^{C-1} \frac{\partial \Pi_c}{\partial s}
++ (1 - s_{\text{save}}) \sum_{c=1}^{C-1} \frac{\partial \Pi_c}{\partial T_c} \cdot \frac{dT_c}{ds}
+$$
+
+The first term is the direct effect (higher surplus = higher profit per cycle). The second is the indirect effect (higher surplus in cycle $c$ means more capital in cycle $c+1$, further amplified by compounding).
+
+### 15.10 Gradient Summary Table
+
+| Output | w.r.t. | Gradient | Sign | Interpretation |
+|--------|--------|----------|------|---------------|
+| OH | $T$ | $-\text{OH} \cdot (P/q) / D$ | $-$ | More capital ? less overhead |
+| OH | $f_s$ | $\text{OH}/f_s$ | $+$ | Higher fees ? more overhead |
+| EO | $s$ | $f_h \cdot \Delta t$ | $+$ | Constant — surplus is linear |
+| $P_e$ | $\alpha$ | $\partial\hat\sigma/\partial\alpha \cdot \Delta P$ | $\pm$ | Steepness shifts entries |
+| $F_i$ | $r$ | $(1-2n_i)/W - F_i \cdot \Sigma(1-2n_j)/W$ | $\pm$ | Risk reallocates capital |
+| TP | $s$ | $(1-n_i) \cdot P_e \cdot f_h \cdot \Delta t$ | $+$ | Surplus raises TP floor |
+| TP | $R_{\max}$ | $n_i \cdot P_{\text{ref}}$ | $+$ | Ceiling scales with reference |
+| TP | $r$ | $(\text{TP}_{\max}-\text{TP}_{\min})(1-2\hat\sigma)$ | $\pm$ | Warps TP distribution |
+| $\Pi_i$ | $s$ | $\text{Funding}_i \cdot (1-n_i) \cdot f_h \cdot \Delta t$ | $+$ | More surplus ? more profit |
+| Buffer | $R_{\min}$ | $n_d(1-\hat\sigma)$ | $+$ | Floor raises buffer |
+| $T_{c+1}$ | $s_{\text{save}}$ | $-\Pi_c$ | $-$ | Savings drain capital |
+
+---
+
+## 16. Gradient-Based Optimisation Framework
+
+### 16.1 The Optimisation Problem
+
+The system has a parameter vector $\theta$ of continuous tunable parameters and produces a scalar objective $J(\theta)$ that we want to maximise (or minimise). The question is: *given the current market context, what parameter settings maximise a chosen objective?*
+
+**Tunable parameter vector:**
+
+$$
+\theta = \bigl[s,\; r,\; \alpha,\; f_h,\; R_{\max},\; R_{\min},\; s_{\text{save}},\; R_{\text{above}},\; R_{\text{below}},\; \Delta t\bigr]
+$$
+
+**Fixed context** (not optimised — determined by market or user):
+
+$$
+\text{context} = \bigl[P,\; q,\; T,\; f_s,\; K,\; n_s,\; N,\; n_d\bigr]
+$$
+
+$N$ and $n_d$ are discrete and handled separately (grid search or enumeration).
+
+**Box constraints** (valid parameter ranges):
+
+| Parameter | Lower | Upper | Rationale |
+|-----------|-------|-------|-----------|
+| $s$ | 0 | $\infty$ | Non-negative surplus |
+| $r$ | 0 | 1 | Risk coefficient domain |
+| $\alpha$ | 0.1 | 20 | Steepness range |
+| $f_h$ | 1 | 10 | Hedging multiplier |
+| $R_{\max}$ | 0 | 1 | Max TP fraction |
+| $R_{\min}$ | 0 | $R_{\max}$ | Floor ? ceiling |
+| $s_{\text{save}}$ | 0 | 0.99 | Can't save 100% |
+| $R_{\text{above}}$, $R_{\text{below}}$ | 0 | $P$ | Range within price |
+| $\Delta t$ | 0.01 | 10 | Time scaling |
+
+### 16.2 Objective Functions
+
+Five practical objectives, each suited to a different trading goal:
+
+**Objective 1: Maximum Profit (MaxProfit)**
+
+$$
+J_1(\theta) = \sum_{i=0}^{N-1} (\text{TP}_i - P_e^{(i)}) \cdot q_i
+$$
+
+Maximises raw dollar profit across all levels if every TP is hit. Gradient-dominant parameter: $s$ (via $\partial\Pi/\partial s > 0$).
+
+*Risk:* Unconstrained maximisation pushes $s \to \infty$, moving TPs far from entry. Must be constrained by a TP distance penalty or hard bound on $s$.
+
+**Objective 2: Minimum TP Spread (MinSpread)**
+
+$$
+J_2(\theta) = -\sum_{i=0}^{N-1} \left(\frac{\text{TP}_i - P_e^{(i)}}{P_e^{(i)}}\right)^2
+$$
+
+Minimises the *relative* TP distance from entry (tighter targets = higher fill probability). Subject to the hard constraint $\text{TP}_i \geq P_{\text{BE}}^{(i)}$ (must cover fees).
+
+*Use case:* Sideways/range-bound markets where you want the fastest possible cycle turnover. The optimiser will push $s$ toward zero and $R_{\max}$ toward overhead.
+
+**Objective 3: Maximum ROI (MaxROI)**
+
+$$
+J_3(\theta) = \frac{\sum_i (\text{TP}_i - P_e^{(i)}) \cdot q_i}{\sum_i \text{Funding}_i}
+= \frac{\sum_i (\text{TP}_i - P_e^{(i)}) \cdot q_i}{T_{\text{avail}}}
+$$
+
+Maximises return on invested capital. Unlike MaxProfit, this penalises over-deployment. Gradient-dominant parameters: $r$ and $\alpha$ (which control *where* capital goes).
+
+*Use case:* Capital-constrained traders who want the best bang per dollar.
+
+**Objective 4: Maximum Chain Growth (MaxChain)**
+
+$$
+J_4(\theta) = \frac{T_C}{T_0} = \prod_{c=0}^{C-1}\left(1 + \frac{\Pi_c(1 - s_{\text{save}})}{T_c}\right)
+$$
+
+Maximises the capital growth ratio over $C$ cycles. This naturally handles the savings trade-off: higher $s_{\text{save}}$ extracts wealth but slows growth.
+
+Taking $\log$ for numerical stability:
+
+$$
+\log J_4 = \sum_{c=0}^{C-1} \log\!\left(1 + \frac{\Pi_c(1-s_{\text{save}})}{T_c}\right)
+$$
+
+Gradient via the chain recurrence (§15.9).
+
+*Use case:* Long-term chain operators who want maximum compounding speed.
+
+**Objective 5: Maximum Wealth Extraction (MaxWealth)**
+
+$$
+J_5(\theta) = T_C + \sum_{c=0}^{C-1} \text{Sav}_c
+= T_C + \sum_{c=0}^{C-1} \Pi_c \cdot s_{\text{save}}
+$$
+
+Maximises total *wealth* (capital remaining + savings extracted). This is the true terminal objective. The gradient with respect to $s_{\text{save}}$ reveals the optimal extraction rate:
+
+$$
+\frac{\partial J_5}{\partial s_{\text{save}}} = \sum_{c=0}^{C-1} \Pi_c + \frac{\partial T_C}{\partial s_{\text{save}}}
+$$
+
+The first term is positive (more savings = more extracted). The second is negative (more savings = less capital for future cycles). The optimum is where these balance.
+
+### 16.3 Composite Objective with Penalty Terms
+
+In practice, combine objectives with weights and add penalty terms for constraints:
+
+$$
+J(\theta) = \lambda_1 J_1 + \lambda_2 J_2 + \lambda_3 J_3 + \lambda_4 J_4 + \lambda_5 J_5
+- \mu_{\text{TP}} \sum_i \max(0,\; P_{\text{BE}}^{(i)} - \text{TP}_i)^2
+- \mu_{\text{dist}} \sum_i \max\!\left(0,\; \frac{\text{TP}_i - P_e^{(i)}}{P_e^{(i)}} - d_{\max}\right)^2
+$$
+
+where $d_{\max}$ is the maximum acceptable TP distance (e.g., 10%).
+
+### 16.4 Gradient Computation
+
+**Analytical gradients** (exact, fast, recommended for single-level parameters):
+
+The derivatives from §15 compose via the chain rule. For the serial plan:
+
+$$
+\frac{\partial J}{\partial \theta} = \sum_{i=0}^{N-1}
+\frac{\partial J}{\partial \Pi_i} \cdot \frac{\partial \Pi_i}{\partial \theta}
+$$
+
+where $\partial\Pi_i/\partial\theta$ expands via §15.7.
+
+**Numerical gradients** (approximate, simpler to implement, required for coupled parameters):
+
+$$
+\frac{\partial J}{\partial \theta_k} \approx \frac{J(\theta + \epsilon \mathbf{e}_k) - J(\theta - \epsilon \mathbf{e}_k)}{2\epsilon}
+$$
+
+with $\epsilon = 10^{-7} \cdot \max(|\theta_k|, 1)$. Central differences give $O(\epsilon^2)$ accuracy.
+
+**Recommendation:** Use analytical gradients for $s$, $r$, $R_{\max}$, $R_{\min}$, $s_{\text{save}}$ (clean closed-form derivatives). Use numerical gradients for $\alpha$ and range parameters (complex sigmoid chain rule). The mixed approach gives the best speed/accuracy trade-off.
+
+### 16.5 Projected Gradient Descent
+
+Standard gradient descent with projection onto the feasible set (box constraints):
+
+$$
+\theta^{(k+1)} = \text{proj}\!\left(\theta^{(k)} + \eta_k \cdot \nabla J(\theta^{(k)}),\; \Theta\right)
+$$
+
+where $\text{proj}(\theta, \Theta)$ clamps each component to its valid range.
+
+**Learning rate schedule** (cosine annealing to avoid oscillation near optimum):
+
+$$
+\eta_k = \eta_{\min} + \frac{1}{2}(\eta_{\max} - \eta_{\min})\left(1 + \cos\frac{\pi k}{K}\right)
+$$
+
+**Convergence criterion:**
+
+$$
+\|\nabla J(\theta^{(k)})\|_\infty < \varepsilon_{\text{tol}} \quad \text{or} \quad k \geq K_{\max}
+$$
+
+**Typical hyperparameters:**
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| $\eta_{\max}$ | $10^{-3}$ | Avoid overshooting sigmoid transitions |
+| $\eta_{\min}$ | $10^{-6}$ | Fine-tuning near optimum |
+| $K_{\max}$ | 200 | Convergence is fast for smooth objectives |
+| $\varepsilon_{\text{tol}}$ | $10^{-8}$ | Numerical precision limit |
+
+### 16.6 Practical Workflow
+
+For an optimisation tab in the chart UI:
+
+1. **User selects objective** from dropdown (MaxProfit / MinSpread / MaxROI / MaxChain / MaxWealth)
+2. **User locks parameters** they don't want changed (e.g., lock $s$ if they have a fixed target margin)
+3. **User sets constraint**: maximum acceptable TP distance $d_{\max}$ (e.g., "TP no more than 5% above entry")
+4. **System runs optimisation** using current params as initial $\theta^{(0)}$, displaying convergence curve
+5. **System shows before/after comparison**: parameter table, chart overlay of old vs. new levels
+6. **User accepts or rejects** the optimised parameters
+
+### 16.7 Expected Behaviour by Objective
+
+| Objective | $s$ tends to | $r$ tends to | $\alpha$ tends to | $s_{\text{save}}$ tends to |
+|-----------|-------------|-------------|-------------------|--------------------------|
+| MaxProfit | Increase (higher TP) | Depends on price range | Moderate (spread entries) | N/A (single cycle) |
+| MinSpread | Decrease (tighter TP) | 0.5 (uniform — minimises variance) | Low (linear distribution) | N/A |
+| MaxROI | Increase but bounded | Increase (aggressive — more at discounts) | High (concentrate at extremes) | N/A |
+| MaxChain | Moderate (balance growth/fill) | Moderate | Moderate | Decrease (reinvest more) |
+| MaxWealth | Moderate | Moderate | Moderate | Interior optimum (balance extraction/growth) |
+
+### 16.8 Sensitivity Analysis
+
+Before running optimisation, compute the gradient magnitude for each parameter to identify which ones matter most:
+
+$$
+\text{sensitivity}_k = \left|\frac{\partial J}{\partial \theta_k}\right| \cdot \frac{\theta_k}{J}
+$$
+
+This is the *elasticity* — the percentage change in objective per percentage change in parameter. Parameters with elasticity near zero can be locked (they don't affect the objective). Parameters with high elasticity are the levers worth optimising.
+
+**Typical sensitivity ordering** (highest to lowest):
+
+1. $s$ (surplus rate) — almost always the dominant parameter
+2. $R_{\max}$ (max risk) — controls TP ceiling
+3. $r$ (risk coefficient) — reallocates capital and TP
+4. $s_{\text{save}}$ (savings rate) — only matters for chain objectives
+5. $\alpha$ (steepness) — second-order shape effect
+6. $f_h$ (fee hedging) — matters only when fees are significant
+7. $R_{\min}$, $R_{\text{above}}$, $R_{\text{below}}$, $\Delta t$ — typically low sensitivity
+
+---
+
+## 17. Conclusion
 
 The framework presented here transforms the problem of profitable trading from *prediction* (guessing where the market goes) into *engineering* (computing what must happen for a known outcome). The overhead formula guarantees fee neutrality. The sigmoid distributions provide tunable, consistent shapes across all dimensions. The chain execution compounds capital across cycles with built-in savings extraction.
 
 The system does not predict whether entries will trigger or TPs will be hit. It guarantees that *if* they are hit, the result is deterministic: fees are covered, surplus is captured, and the next cycle is funded. The market provides the randomness; the equations provide the structure.
 
-The key insight is that the surplus rate $s$ is the fundamental parameter. All other costs (fees, hedging, spread) are engineering details that the overhead formula absorbs. As capital grows across chain cycles, overhead vanishes, and the system converges to its theoretical limit: a cycle machine generating $s$% per round, with the market's only role being to move prices through the entry and exit levels.
+The partial derivatives (§15) reveal that the surplus rate $s$ is the fundamental parameter — it has a constant, positive gradient on EO, making it the most predictable tuning knob. All other costs (fees, hedging, spread) are engineering details that the overhead formula absorbs. As capital grows across chain cycles, overhead vanishes, and the system converges to its theoretical limit: a cycle machine generating $s$% per round.
+
+The gradient-based optimisation framework (§16) enables automatic parameter tuning. The chain compounding gradient has the structure of backpropagation through time — each cycle is a "layer" and the gradient flows backward through the recurrence relation. This means standard deep learning optimisation techniques (gradient clipping, learning rate scheduling, momentum) apply directly. The five objective functions cover the full spectrum from conservative (MinSpread) to aggressive (MaxChain), with MaxWealth as the true terminal objective that reveals the optimal savings extraction rate as a balance point between two opposing gradients.
