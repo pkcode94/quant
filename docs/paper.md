@@ -323,6 +323,35 @@ $$
 
 The maximum loss per level is proportional to $\phi_{\text{sl}}$. At $\phi_{\text{sl}} = 0.25$, the immediate loss is one quarter of what a full SL would produce.
 
+### 5.7 Capital-Loss Cap
+
+The integrated worst-case SL loss across all $N$ levels must never exceed the available capital $T_{\text{avail}}$:
+
+$$
+\text{TotalSLLoss} = \phi_{\text{sl}} \cdot \sum_{i=0}^{N-1} \text{EO} \cdot \text{Funding}_i
+$$
+
+$$
+\text{Constraint: } \text{TotalSLLoss} \leq T_{\text{avail}}
+$$
+
+When the constraint is violated, the system **auto-clamps** $\phi_{\text{sl}}$ downward:
+
+$$
+\phi_{\text{sl}}^{\text{clamped}} = \phi_{\text{sl}} \cdot \frac{T_{\text{avail}}}{\text{TotalSLLoss}}
+$$
+
+This ensures that even if every single SL across all levels triggers simultaneously, the total realised loss cannot exceed the capital you deployed. The clamp is applied per cycle in chain mode — each cycle's SL exposure is bounded by that cycle's capital.
+
+| Scenario | $\phi_{\text{sl}}$ input | Total exposure | Clamp applied | Effective $\phi_{\text{sl}}$ |
+|----------|--------------------------|----------------|---------------|------------------------------|
+| Exposure < capital | 1.0 | $800 of $1000 | No | 1.0 |
+| Exposure = capital | 1.0 | $1000 of $1000 | No | 1.0 |
+| Exposure > capital | 1.0 | $1200 of $1000 | Yes | 0.833 |
+| Low fraction | 0.25 | $250 of $1000 | No | 0.25 |
+
+**Rationale.** Without this cap, high EO combined with aggressive funding can produce a plan where simultaneous SL hits would lose more than the available capital — an impossible outcome that the framework must prevent. The cap converts an infeasible plan into a feasible one by reducing SL exit sizes rather than rejecting the plan entirely.
+
 ---
 
 ## 6. Exit Strategy Calculator
@@ -810,6 +839,7 @@ All formulas mirror. TP targets decrease below entry. SL targets increase above 
 | $\text{TP}_i$ | §5 | Take-profit target |
 | $\text{SL}_i$ | §5.5 | Stop-loss target |
 | $q_{\text{sl}}$ | §5.6 | Fractional SL exit quantity |
+| $\phi_{\text{sl}}^{\text{clamped}}$ | §5.7 | Capital-loss cap on SL fraction |
 | $q_i^{\text{sell}}$ | §6.2 | Exit quantity per level |
 | buffer | §7.2 | Downtrend TP multiplier |
 | $\text{buffer}_{\text{sl}}$ | §7.5 | Stop-loss hedge TP multiplier |

@@ -166,6 +166,7 @@ This grows super-linearly because each loss increases the overhead for the next.
 - **Keep SLs off** (the default). The framework doesn't need them — it waits for TP.
 - **Fractional SL** ($\phi_{\text{sl}} = 0.1$ to $0.25$) limits each SL to a small trim.
 - **SL hedge buffer** ($n_{\text{sl}} > 0$) inflates TP to pre-fund expected SL losses. This restores the deterministic guarantee *on expectation* — but only if the actual SL hit rate matches $n_{\text{sl}}$.
+- **Capital-loss cap** (§5.7 of paper). The engine auto-clamps $\phi_{\text{sl}}$ so that the summed worst-case SL losses across all levels never exceeds the available capital. Even if every SL triggers simultaneously, the total loss is bounded by $T_{\text{avail}}$. This prevents the degenerate case where aggressive funding + high EO produces an infeasible plan. The cap does **not** prevent the death spiral — it only bounds the *per-cycle* damage. Three consecutive capped cycles can still deplete capital; the cap just guarantees each individual cycle cannot lose more than 100% of its capital.
 
 ---
 

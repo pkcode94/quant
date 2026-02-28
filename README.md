@@ -307,6 +307,16 @@ $$
 
 The stop-loss is placed at exactly the effective overhead distance *below* entry for LONG (above for SHORT). If the SL is hit, the loss equals the overhead — the maximum loss is bounded by the same formula that governs the TP.
 
+### 5.6 Capital-Loss Cap
+
+The integrated worst-case SL loss across all $N$ levels must never exceed the available capital:
+
+$$
+\text{TotalSLLoss} = \phi_{\text{sl}} \cdot \sum_{i=0}^{N-1} \text{EO} \cdot \text{Funding}_i \leq T_{\text{avail}}
+$$
+
+When violated, $\phi_{\text{sl}}$ is auto-clamped downward so total exposure equals capital exactly. This guarantees that even if every SL fires simultaneously, the total realised loss cannot exceed what was deployed. The cap is applied per cycle in chain mode.
+
 ---
 
 ## 6. Exit Strategy Calculator

@@ -356,6 +356,25 @@ $$
 \text{Loss}_{\text{sl}} = -\text{EO} \cdot P_e \cdot q_i \cdot \phi_{\text{sl}}
 $$
 
+### 5.4c — Capital-Loss Cap (`clampStopLossFraction`)
+
+The integrated worst-case SL loss across all $N$ levels must not exceed the available capital $T_{\text{avail}}$:
+
+$$
+\text{TotalSLLoss} = \phi_{\text{sl}} \cdot \sum_{i=0}^{N-1} \text{EO} \cdot \text{Funding}_i
+$$
+
+$$
+\boxed{
+\phi_{\text{sl}}^{\text{clamped}} = \begin{cases}
+\phi_{\text{sl}} & \text{if TotalSLLoss} \leq T_{\text{avail}} \\[4pt]
+\phi_{\text{sl}} \cdot \dfrac{T_{\text{avail}}}{\text{TotalSLLoss}} & \text{otherwise}
+\end{cases}
+}
+$$
+
+This guarantees that even if every SL across all levels triggers simultaneously, the total realised loss is bounded by $T_{\text{avail}}$.
+
 ### 5.5 — Downtrend Buffer (`calculateDowntrendBuffer`)
 
 Computes a position-derived TP multiplier with **axis-dependent sigmoid curvature**.
