@@ -620,6 +620,59 @@ public:
         return cr;
     }
 
+    // ?? Chain output ????????????????????????????????????????
+
+    struct ChainCycle
+    {
+        int              cycle          = 0;
+        double           capital        = 0.0;
+        SerialPlan       plan;
+        CycleResult      result;
+    };
+
+    struct ChainResult
+    {
+        std::vector<ChainCycle> cycles;
+        double initialOverhead  = 0.0;
+        double initialEffective = 0.0;
+    };
+
+    // ?? generateChain (§9) ??????????????????????????????????
+    //
+    // Multi-cycle chain: iterate cycles, generate serial plan per
+    // cycle, compute profit, forward capital into next cycle.
+    // Pure math — no DB, no HTTP.
+
+    static ChainResult generateChain(const SerialParams& sp, int totalCycles)
+    {
+        ChainResult cr;
+        if (totalCycles < 1) totalCycles = 1;
+
+        auto plan0 = generateSerialPlan(sp);
+        cr.initialOverhead  = plan0.overhead;
+        cr.initialEffective = plan0.effectiveOH;
+
+        double capital = sp.availableFunds;
+
+        for (int ci = 0; ci < totalCycles; ++ci)
+        {
+            SerialParams csp  = sp;
+            csp.availableFunds   = capital;
+            csp.futureTradeCount = chainFutureTradeCount(totalCycles, ci);
+
+            ChainCycle cc;
+            cc.cycle   = ci;
+            cc.capital = capital;
+            cc.plan    = generateSerialPlan(csp);
+            cc.result  = computeCycle(cc.plan, csp);
+
+            capital = cc.result.nextCycleFunds;
+            cr.cycles.push_back(std::move(cc));
+        }
+
+        return cr;
+    }
+
 private:
     // ?? Internal: per-level TP/SL ??
 

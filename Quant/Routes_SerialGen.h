@@ -146,9 +146,9 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
         h << "</tr>";
         for (const auto& e : entries)
         {
-            double cost = e.entryPrice * e.fundQty;
+            double entryCost = QuantMath::cost(e.entryPrice, e.fundQty);
             h << "<tr><td>" << e.index << "</td><td>" << e.entryPrice << "</td><td>" << e.discountPct << "%</td>"
-              << "<td>" << e.fundQty << "</td><td>" << cost << "</td><td>" << e.breakEven << "</td>"
+              << "<td>" << e.fundQty << "</td><td>" << entryCost << "</td><td>" << e.breakEven << "</td>"
               << "<td class='buy'>" << e.tpUnit << "</td><td class='buy'>" << e.tpTotal << "</td><td class='buy'>" << e.tpGross << "</td>";
             if (genSL)
                 h << "<td class='sell'>" << e.slUnit << "</td><td class='sell'>" << e.slQty << "</td><td class='sell'>" << e.slTotal << "</td><td class='sell'>" << e.slLoss << "</td>";
@@ -233,7 +233,7 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
         for (size_t i = 0; i < jentries.size(); ++i)
         {
             auto& e = jentries[i];
-            double fee = e.funding * feeSpread;
+            double fee = QuantMath::feeFromRate(e.funding, feeSpread);
             totalCost += e.funding;
             totalFees += fee;
             j << jdate << " Buy " << sym << " level " << i << "\n"
@@ -245,28 +245,28 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
         for (size_t i = 0; i < jentries.size(); ++i)
         {
             auto& e = jentries[i];
-            double revenue = e.tp * e.qty;
-            double fee = revenue * feeSpread;
+            double revenue = QuantMath::cost(e.tp, e.qty);
+            double fee = QuantMath::feeFromRate(revenue, feeSpread);
             totalRevenue += revenue;
             totalFees += fee;
             j << jdate << " Sell " << sym << " TP level " << i << "\n"
-              << "    assets:bank:trading          $" << (revenue - fee) << "\n"
+              << "    assets:bank:trading          $" << QuantMath::proceeds(e.tp, e.qty, fee) << "\n"
               << "    expenses:fees:exchange       $" << fee << "\n"
               << "    assets:crypto:" << symLower << "   -" << e.qty << " " << sym << " @ $" << e.tp << "\n\n";
         }
 
         double gross = totalRevenue - totalCost - totalFees;
-        double savings = gross * savingsRate;
-        if (savings > 0)
+        double savingsAmt = QuantMath::savings(gross, savingsRate);
+        if (savingsAmt > 0)
         {
             j << jdate << " Quant savings extraction\n"
-              << "    assets:savings:quant         $" << savings << "\n"
-              << "    income:trading:quant        $-" << savings << "\n\n";
+              << "    assets:savings:quant         $" << savingsAmt << "\n"
+              << "    income:trading:quant        $-" << savingsAmt << "\n\n";
         }
 
         j << "; Total fees: $" << totalFees << "\n"
           << "; Net profit: $" << gross << "\n"
-          << "; Savings:    $" << savings << "\n";
+          << "; Savings:    $" << savingsAmt << "\n";
 
         std::ostringstream h;
         h << "<h1>hledger Journal: " << html::esc(sym) << "</h1>"
@@ -306,7 +306,7 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
             double exitTP = fd(f, "etp_" + si);
             double exitSL = fd(f, "esl_" + si);
             if (funding <= 0) continue;
-            double cost = entryPrice * fundQty;
+            double saveCost = QuantMath::cost(entryPrice, fundQty);
             TradeDatabase::EntryPoint ep;
             ep.symbol = sym; ep.entryId = nextEpId++; ep.levelIndex = i;
             ep.entryPrice = entryPrice; ep.breakEven = breakEven;
@@ -316,7 +316,7 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
             ep.traded = false; ep.linkedTradeId = -1;
             newPoints.push_back(ep);
             h << "<tr><td>" << i << "</td><td>" << entryPrice << "</td><td>" << fundQty << "</td>"
-              << "<td>" << cost << "</td><td>" << exitTP << "</td><td>" << exitSL << "</td><td class='buy'>PENDING</td></tr>";
+              << "<td>" << saveCost << "</td><td>" << exitTP << "</td><td>" << exitSL << "</td><td class='buy'>PENDING</td></tr>";
         }
         h << "</table>";
         auto existing = db.loadEntryPoints();

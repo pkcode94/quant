@@ -160,13 +160,13 @@ static void listTrades(TradeDatabase& db)
         for (const auto& c : trades)
         {
             if (c.parentTradeId != t.tradeId) continue;
-            double exitPnl = (c.value - t.value) * c.quantity;
+            double exitPnl = QuantMath::grossProfit(t.value, c.value, c.quantity);
             std::cout << "    -> #" << c.tradeId
                       << "  EXIT"
                       << "  price=" << c.value
                       << "  qty=" << c.quantity
                       << "  P&L=" << exitPnl
-                      << " (" << ((c.value - t.value) / t.value * 100.0) << "%)\n";
+                      << " (" << QuantMath::pctGain(t.value, c.value) << "%)\n";
         }
 
         // show pending exit orders for this trade
@@ -1160,7 +1160,7 @@ static void priceCheck(TradeDatabase& db)
                       << " (" << tpPrice << "/unit)";
             if (tpHit)
             {
-                double tpProfit = (cur - tpPrice) * t.quantity;
+                double tpProfit = QuantMath::grossProfit(tpPrice, cur, t.quantity);
                 std::cout << "  >> EXCEEDED  surplus=" << tpProfit;
             }
             else

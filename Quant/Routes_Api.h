@@ -224,12 +224,14 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         else
         {
             auto levels = MarketEntryCalculator::generate(cur, qty, entryParams, risk, steepness, rangeAbove, rangeBelow);
-            double eo = MultiHorizonEngine::effectiveOverhead(cur, qty, p);
-            double overhead = MultiHorizonEngine::computeOverhead(cur, qty, p);
+            double oh = QuantMath::overhead(cur, qty, p.feeSpread, p.feeHedgingCoefficient,
+                p.deltaTime, p.symbolCount, p.portfolioPump, p.coefficientK, p.futureTradeCount);
+            double eo = QuantMath::effectiveOverhead(oh, p.surplusRate, p.feeSpread,
+                p.feeHedgingCoefficient, p.deltaTime);
             double tpRef = (rangeAbove > 0.0 || rangeBelow > 0.0) ? cur + rangeAbove : cur;
 
             j << "{\"symbol\":\"" << sym << "\",\"currentPrice\":" << cur
-              << ",\"overhead\":" << overhead << ",\"effective\":" << eo
+              << ",\"overhead\":" << oh << ",\"effective\":" << eo
               << ",\"isShort\":" << (isShort ? "true" : "false")
               << ",\"levels\":[";
             bool first = true;
@@ -237,8 +239,8 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             {
                 if (!first) j << ",";
                 first = false;
-                double exitTP = MultiHorizonEngine::levelTP(el.entryPrice, overhead, eo, p, steepness, el.index, p.horizonCount, isShort, risk, tpRef);
-                double exitSL = MultiHorizonEngine::levelSL(el.entryPrice, eo, isShort);
+                double exitTP = QuantMath::levelTP(el.entryPrice, oh, eo, p.maxRisk, p.minRisk, risk, isShort, steepness, el.index, p.horizonCount, tpRef);
+                double exitSL = QuantMath::levelSL(el.entryPrice, eo, isShort);
                 j << "{\"index\":" << el.index
                   << ",\"entry\":" << el.entryPrice
                   << ",\"breakEven\":" << el.breakEven
@@ -316,35 +318,28 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             return;
         }
 
-        auto plan0 = QuantMath::generateSerialPlan(sp);
+        auto chain = QuantMath::generateChain(sp, chainCycles);
 
         j << "{\"currentPrice\":" << sp.currentPrice
-          << ",\"overhead\":" << plan0.overhead
-          << ",\"effective\":" << plan0.effectiveOH
+          << ",\"overhead\":" << chain.initialOverhead
+          << ",\"effective\":" << chain.initialEffective
           << ",\"cycles\":[";
 
-        double capital = sp.availableFunds;
-
-        for (int ci = 0; ci < chainCycles; ++ci)
+        for (size_t ci = 0; ci < chain.cycles.size(); ++ci)
         {
             if (ci > 0) j << ",";
+            const auto& cc = chain.cycles[ci];
 
-            QuantMath::SerialParams csp = sp;
-            csp.availableFunds = capital;
-            csp.futureTradeCount = QuantMath::chainFutureTradeCount(chainCycles, ci);
-            auto plan = QuantMath::generateSerialPlan(csp);
-            auto cycle = QuantMath::computeCycle(plan, csp);
-
-            j << "{\"cycle\":" << ci
-              << ",\"capital\":" << capital
-              << ",\"overhead\":" << plan.overhead
-              << ",\"effective\":" << plan.effectiveOH
-              << ",\"slFrac\":" << plan.slFraction
+            j << "{\"cycle\":" << cc.cycle
+              << ",\"capital\":" << cc.capital
+              << ",\"overhead\":" << cc.plan.overhead
+              << ",\"effective\":" << cc.plan.effectiveOH
+              << ",\"slFrac\":" << cc.plan.slFraction
               << ",\"levels\":[";
 
-            for (size_t i = 0; i < plan.entries.size(); ++i)
+            for (size_t i = 0; i < cc.plan.entries.size(); ++i)
             {
-                const auto& e = plan.entries[i];
+                const auto& e = cc.plan.entries[i];
                 if (i > 0) j << ",";
                 j << "{\"index\":" << e.index
                   << ",\"entry\":" << e.entryPrice
@@ -357,12 +352,10 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
                   << "}";
             }
 
-            j << "],\"profit\":" << cycle.grossProfit
-              << ",\"savings\":" << cycle.savingsAmount
-              << ",\"capitalAfter\":" << cycle.nextCycleFunds
+            j << "],\"profit\":" << cc.result.grossProfit
+              << ",\"savings\":" << cc.result.savingsAmount
+              << ",\"capitalAfter\":" << cc.result.nextCycleFunds
               << "}";
-
-            capital = cycle.nextCycleFunds;
         }
 
         j << "]}";
@@ -684,8 +677,11 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
                             if (axis3 != "none") applyVal(hp, qty, axis3, scaled(base3, z3Mul));
                             if (axis4 != "none") applyVal(hp, qty, axis4, scaled(base4, z4Mul));
                             if (qty < 1e-18) qty = 1e-18;
-                            double eo = MultiHorizonEngine::effectiveOverhead(price, qty, hp);
-                            double oh = MultiHorizonEngine::computeOverhead(price, qty, hp);
+                            double oh = QuantMath::overhead(price, qty, hp.feeSpread,
+                                hp.feeHedgingCoefficient, hp.deltaTime, hp.symbolCount,
+                                hp.portfolioPump, hp.coefficientK, hp.futureTradeCount);
+                            double eo = QuantMath::effectiveOverhead(oh, hp.surplusRate,
+                                hp.feeSpread, hp.feeHedgingCoefficient, hp.deltaTime);
                             if (xi > 0) j << ",";
                             j << "{\"xm\":" << xMul
                               << ",\"ym\":" << yMul
@@ -849,7 +845,9 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
                         else allTradedSold = false;
                         for (const auto& s : allTrades)
                             if (s.type == TradeType::CoveredSell && s.parentTradeId == t.tradeId)
-                                cyclePnl += (s.value - t.value) * s.quantity - s.sellFee;
+                                cyclePnl += QuantMath::netProfit(
+                                    QuantMath::grossProfit(t.value, s.value, s.quantity),
+                                    0.0, s.sellFee);
                         break;
                     }
                 }
@@ -955,7 +953,9 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
                         if (sq < t.quantity - 1e-9) allSold = false;
                         for (const auto& s : allTrades)
                             if (s.type == TradeType::CoveredSell && s.parentTradeId == t.tradeId)
-                                cyclePnl += (s.value - t.value) * s.quantity - s.sellFee;
+                                cyclePnl += QuantMath::netProfit(
+                                    QuantMath::grossProfit(t.value, s.value, s.quantity),
+                                    0.0, s.sellFee);
                         break;
                     }
                 }
@@ -1077,144 +1077,45 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         auto f = parseForm(req.body);
         std::string sym = normalizeSymbol(fv(f, "symbol"));
         double savingsRate = fd(f, "savingsRate", 0.0);
-        double currentPrice = fd(f, "currentPrice");
-        double qty = fd(f, "quantity", 1.0);
-        double risk = fd(f, "risk", 0.5);
-        double steepness = fd(f, "steepness", 6.0);
-        bool isShort = (fv(f, "isShort") == "1");
-        int fundMode = fi(f, "fundMode", 1);
-        bool genSL = (fv(f, "generateStopLosses") == "1");
-        double rangeAbove = fd(f, "rangeAbove");
-        double rangeBelow = fd(f, "rangeBelow");
-        int downtrendCount = fi(f, "downtrendCount", 1);
         int chainCycles = fi(f, "chainCycles", 3);
 
-        if (sym.empty() || currentPrice <= 0) {
+        if (sym.empty() || fd(f, "currentPrice") <= 0) {
             res.set_content("{\"error\":\"symbol and price required\"}", "application/json");
             return;
         }
-
-        HorizonParams p;
-        p.horizonCount = fi(f, "levels", 4);
-        p.feeHedgingCoefficient = fd(f, "feeHedgingCoefficient", 1.0);
-        p.portfolioPump = fd(f, "portfolioPump");
-        p.symbolCount = fi(f, "symbolCount", 1);
-        p.coefficientK = fd(f, "coefficientK");
-        p.feeSpread = fd(f, "feeSpread");
-        p.deltaTime = fd(f, "deltaTime", 1.0);
-        p.surplusRate = fd(f, "surplusRate");
-        p.maxRisk = fd(f, "maxRisk");
-        p.minRisk = fd(f, "minRisk");
-        p.futureTradeCount = fi(f, "futureTradeCount", 0);
-        p.stopLossFraction = fd(f, "stopLossFraction", 1.0);
-        p.stopLossHedgeCount = fi(f, "stopLossHedgeCount", 0);
-
-        double walBal = db.loadWalletBalance();
-        double availableFunds = p.portfolioPump;
-        if (fundMode == 2) availableFunds += walBal;
-
         if (chainCycles < 1) chainCycles = 1;
         if (chainCycles > 10) chainCycles = 10;
 
-        int N = p.horizonCount;
-        if (N < 1) N = 1;
-        if (steepness < 0.1) steepness = 0.1;
+        auto sp = buildSerialParams(f, db.loadWalletBalance());
+        sp.savingsRate = savingsRate;
 
-        auto sigmoid = [](double x) { return 1.0 / (1.0 + std::exp(-x)); };
-        double sig0 = sigmoid(-steepness * 0.5);
-        double sig1 = sigmoid(steepness * 0.5);
-        double sigRange = (sig1 - sig0 > 0) ? sig1 - sig0 : 1.0;
-
-        double priceLow, priceHigh;
-        if (rangeAbove > 0.0 || rangeBelow > 0.0) {
-            priceLow = currentPrice - rangeBelow;
-            if (priceLow < 1e-18) priceLow = 1e-18;
-            priceHigh = currentPrice + rangeAbove;
-        } else {
-            priceLow = 0.0;
-            priceHigh = currentPrice;
-        }
-
-        std::vector<double> norm(N);
-        for (int i = 0; i < N; ++i) {
-            double t = (N > 1) ? static_cast<double>(i) / static_cast<double>(N - 1) : 1.0;
-            double sigVal = sigmoid(steepness * (t - 0.5));
-            norm[i] = (sigVal - sig0) / sigRange;
-        }
-
-        double riskClamped = (risk < 0) ? 0 : (risk > 1) ? 1 : risk;
-        std::vector<double> weights(N);
-        double weightSum = 0;
-        for (int i = 0; i < N; ++i) {
-            weights[i] = (1.0 - riskClamped) * norm[i] + riskClamped * (1.0 - norm[i]);
-            if (weights[i] < 1e-12) weights[i] = 1e-12;
-            weightSum += weights[i];
-        }
+        auto chain = QuantMath::generateChain(sp, chainCycles);
 
         // Clear existing chain
         db.saveChainMembers({});
 
         auto existingEps = db.loadEntryPoints();
-        double capital = availableFunds;
         int totalEntries = 0;
 
-        for (int ci = 0; ci < chainCycles; ++ci)
+        for (const auto& cc : chain.cycles)
         {
-            HorizonParams cp = p;
-            cp.portfolioPump = capital;
-            // Each cycle pre-covers fees for the remaining cycles in the chain.
-            cp.futureTradeCount = chainCycles - 1 - ci;
-            double cycleEo = MultiHorizonEngine::effectiveOverhead(currentPrice, qty, cp);
-            double cycleOh = MultiHorizonEngine::computeOverhead(currentPrice, qty, cp);
-            double dtBuffer = MultiHorizonEngine::calculateDowntrendBuffer(
-                currentPrice, qty, capital, cycleEo, cp.minRisk, cp.maxRisk, downtrendCount);
-            double slFrac2 = MultiHorizonEngine::stopLossSellFraction(cp);
-            double slBuf2 = MultiHorizonEngine::calculateStopLossBuffer(
-                currentPrice, qty, capital, cycleEo, cp.minRisk, cp.maxRisk, slFrac2, cp.stopLossHedgeCount);
-            double combinedBuffer = dtBuffer * slBuf2;
-
-            // Clamp φ_sl so total worst-case SL loss ≤ cycle capital.
-            double slFracSave = slFrac2;
-            if (genSL) {
-                std::vector<double> cycleFundings(N);
-                for (int i = 0; i < N; ++i)
-                    cycleFundings[i] = (weightSum > 0) ? capital * weights[i] / weightSum : 0;
-                slFracSave = MultiHorizonEngine::clampStopLossFraction(slFrac2, cycleEo, cycleFundings, capital);
-            }
-
             std::vector<int> cycleEntryIds;
-            double cycleProfit = 0;
-
-            for (int i = 0; i < N; ++i)
+            for (const auto& e : cc.plan.entries)
             {
-                double entryPrice = priceLow + norm[i] * (priceHigh - priceLow);
-                if (entryPrice < 1e-18) entryPrice = 1e-18;
-
-                double tpPrice = MultiHorizonEngine::levelTP(
-                    entryPrice, cycleOh, cycleEo, cp, steepness, i, N, isShort, riskClamped, priceHigh);
-                if (combinedBuffer > 1.0) tpPrice *= combinedBuffer;
-                double slPrice = genSL ? MultiHorizonEngine::levelSL(entryPrice, cycleEo, isShort) : 0;
-
-                double fundFrac = (weightSum > 0) ? weights[i] / weightSum : 0;
-                double funding = capital * fundFrac;
-                if (funding <= 0) continue;
-                double fundQty = funding / entryPrice;
-                double breakEven = entryPrice * (1.0 + cycleOh);
-
-                cycleProfit += (tpPrice - entryPrice) * fundQty;
+                if (e.funding <= 0) continue;
 
                 TradeDatabase::EntryPoint ep;
                 ep.symbol = sym;
                 ep.entryId = db.nextEntryId();
-                ep.levelIndex = i;
-                ep.entryPrice = entryPrice;
-                ep.breakEven = breakEven;
-                ep.funding = funding;
-                ep.fundingQty = fundQty;
-                ep.effectiveOverhead = cycleEo;
-                ep.isShort = isShort;
-                ep.exitTakeProfit = tpPrice;
-                ep.exitStopLoss = slPrice;
+                ep.levelIndex = e.index;
+                ep.entryPrice = e.entryPrice;
+                ep.breakEven = e.breakEven;
+                ep.funding = e.funding;
+                ep.fundingQty = e.fundQty;
+                ep.effectiveOverhead = cc.plan.effectiveOH;
+                ep.isShort = sp.isShort;
+                ep.exitTakeProfit = e.tpUnit;
+                ep.exitStopLoss = sp.generateStopLosses ? e.slUnit : 0;
                 ep.traded = false;
                 ep.linkedTradeId = -1;
 
@@ -1223,10 +1124,7 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
                 totalEntries++;
             }
 
-            db.addChainMembers(ci, cycleEntryIds);
-
-            double cycleSavings = (cycleProfit > 0 && savingsRate > 0) ? cycleProfit * savingsRate : 0;
-            capital = capital + cycleProfit - cycleSavings;
+            db.addChainMembers(cc.cycle, cycleEntryIds);
         }
 
         db.saveEntryPoints(existingEps);
@@ -1267,43 +1165,40 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         std::string sym = trade->symbol;
         double tradePrice = trade->value;
         double tradeQty = trade->quantity;
-        double tradeCost = tradePrice * tradeQty;
+        double tradeCost = QuantMath::cost(tradePrice, tradeQty);
 
-        double qty = fd(f, "quantity", 1.0);
-        double risk = fd(f, "risk", 0.5);
-        double steepness = fd(f, "steepness", 6.0);
-        bool isShort = (fv(f, "isShort") == "1");
-        bool genSL = (fv(f, "generateStopLosses") == "1");
-        double rangeAbove = fd(f, "rangeAbove");
-        double rangeBelow = fd(f, "rangeBelow");
-        int downtrendCount = fi(f, "downtrendCount", 1);
+        // Build params seeded from the trade
+        QuantMath::SerialParams sp;
+        sp.currentPrice          = tradePrice;
+        sp.quantity              = fd(f, "quantity", 1.0);
+        sp.levels                = fi(f, "levels", 4);
+        sp.steepness             = fd(f, "steepness", 6.0);
+        sp.risk                  = fd(f, "risk", 0.5);
+        sp.isShort               = (fv(f, "isShort") == "1");
+        sp.rangeAbove            = fd(f, "rangeAbove");
+        sp.rangeBelow            = fd(f, "rangeBelow");
+        sp.feeSpread             = fd(f, "feeSpread");
+        sp.feeHedgingCoefficient = fd(f, "feeHedgingCoefficient", 1.0);
+        sp.deltaTime             = fd(f, "deltaTime", 1.0);
+        sp.symbolCount           = fi(f, "symbolCount", 1);
+        sp.coefficientK          = fd(f, "coefficientK");
+        sp.surplusRate           = fd(f, "surplusRate");
+        sp.maxRisk               = fd(f, "maxRisk");
+        sp.minRisk               = fd(f, "minRisk");
+        sp.generateStopLosses    = (fv(f, "generateStopLosses") == "1");
+        sp.downtrendCount        = fi(f, "downtrendCount", 1);
+        sp.savingsRate           = savingsRate;
+        sp.availableFunds        = tradeCost;
 
-        HorizonParams p;
-        p.horizonCount = fi(f, "levels", 4);
-        p.feeHedgingCoefficient = fd(f, "feeHedgingCoefficient", 1.0);
-        p.portfolioPump = tradeCost;
-        p.symbolCount = fi(f, "symbolCount", 1);
-        p.coefficientK = fd(f, "coefficientK");
-        p.feeSpread = fd(f, "feeSpread");
-        p.deltaTime = fd(f, "deltaTime", 1.0);
-        p.surplusRate = fd(f, "surplusRate");
-        p.maxRisk = fd(f, "maxRisk");
-        p.minRisk = fd(f, "minRisk");
-
-        int N = p.horizonCount;
-        if (N < 1) N = 1;
-        if (steepness < 0.1) steepness = 0.1;
-
-        double eo = MultiHorizonEngine::effectiveOverhead(tradePrice, qty, p);
-        double overhead = MultiHorizonEngine::computeOverhead(tradePrice, qty, p);
-        double riskClamped = (risk < 0) ? 0 : (risk > 1) ? 1 : risk;
+        // Compute overhead for cycle 0 entry point
+        auto plan0 = QuantMath::generateSerialPlan(sp);
 
         // Determine TP for cycle 0 (the existing trade)
         double tpPerUnit = 0;
         if (trade->takeProfit > 0 && tradeQty > 0)
             tpPerUnit = trade->takeProfit / tradeQty;
-        else
-            tpPerUnit = MultiHorizonEngine::levelTP(tradePrice, overhead, eo, p, steepness, 0, N, isShort, riskClamped, tradePrice);
+        else if (!plan0.entries.empty())
+            tpPerUnit = plan0.entries[0].tpUnit;
 
         double slPerUnit = 0;
         if (trade->stopLoss > 0 && tradeQty > 0)
@@ -1321,11 +1216,11 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             ep.entryId = db.nextEntryId();
             ep.levelIndex = 0;
             ep.entryPrice = tradePrice;
-            ep.breakEven = tradePrice * (1.0 + overhead);
+            ep.breakEven = QuantMath::breakEven(tradePrice, plan0.overhead);
             ep.funding = tradeCost;
             ep.fundingQty = tradeQty;
-            ep.effectiveOverhead = eo;
-            ep.isShort = isShort;
+            ep.effectiveOverhead = plan0.effectiveOH;
+            ep.isShort = sp.isShort;
             ep.traded = true;
             ep.linkedTradeId = tradeId;
             ep.exitTakeProfit = tpPerUnit;
@@ -1340,94 +1235,37 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         db.addChainMembers(0, {tradeEpId});
 
         // Cycle 0 theoretical profit
-        double cycle0Profit = (tpPerUnit - tradePrice) * tradeQty;
-        double cycle0Savings = (cycle0Profit > 0 && savingsRate > 0) ? cycle0Profit * savingsRate : 0;
-        double capital = tradeCost + cycle0Profit - cycle0Savings;
+        double cycle0Profit = QuantMath::grossProfit(tradePrice, tpPerUnit, tradeQty);
+        double cycle0Savings = QuantMath::savings(cycle0Profit, savingsRate);
+        double startCapital = tradeCost + cycle0Profit - cycle0Savings;
 
-        // Generate future cycles
-        auto sigmoid = [](double x) { return 1.0 / (1.0 + std::exp(-x)); };
-        double sig0 = sigmoid(-steepness * 0.5);
-        double sig1 = sigmoid(steepness * 0.5);
-        double sigRange = (sig1 - sig0 > 0) ? sig1 - sig0 : 1.0;
-
-        double priceLow, priceHigh;
-        if (rangeAbove > 0.0 || rangeBelow > 0.0) {
-            priceLow = tradePrice - rangeBelow;
-            if (priceLow < 1e-18) priceLow = 1e-18;
-            priceHigh = tradePrice + rangeAbove;
-        } else {
-            priceLow = 0.0;
-            priceHigh = tradePrice;
-        }
-
-        std::vector<double> norm(N);
-        for (int i = 0; i < N; ++i) {
-            double t = (N > 1) ? static_cast<double>(i) / static_cast<double>(N - 1) : 1.0;
-            double sigVal = sigmoid(steepness * (t - 0.5));
-            norm[i] = (sigVal - sig0) / sigRange;
-        }
-
-        std::vector<double> weights(N);
-        double weightSum = 0;
-        for (int i = 0; i < N; ++i) {
-            weights[i] = (1.0 - riskClamped) * norm[i] + riskClamped * (1.0 - norm[i]);
-            if (weights[i] < 1e-12) weights[i] = 1e-12;
-            weightSum += weights[i];
-        }
+        // Generate future cycles via generateChain seeded at post-cycle-0 capital
+        QuantMath::SerialParams futureSp = sp;
+        futureSp.availableFunds = startCapital;
+        int futureCycles = chainCycles - 1;
+        auto chain = QuantMath::generateChain(futureSp, futureCycles);
 
         int totalEntries = 0;
-
-        for (int ci = 1; ci < chainCycles; ++ci)
+        for (const auto& cc : chain.cycles)
         {
-            HorizonParams cp = p;
-            cp.portfolioPump = capital;
-            double cycleEo = MultiHorizonEngine::effectiveOverhead(tradePrice, qty, cp);
-            double cycleOh = MultiHorizonEngine::computeOverhead(tradePrice, qty, cp);
-            double dtBuffer = MultiHorizonEngine::calculateDowntrendBuffer(
-                tradePrice, qty, capital, cycleEo, cp.minRisk, cp.maxRisk, downtrendCount);
-
-            // Clamp φ_sl so total worst-case SL loss ≤ cycle capital.
-            double slFracFt = MultiHorizonEngine::stopLossSellFraction(cp);
-            if (genSL) {
-                std::vector<double> cycleFundings(N);
-                for (int i = 0; i < N; ++i)
-                    cycleFundings[i] = (weightSum > 0) ? capital * weights[i] / weightSum : 0;
-                slFracFt = MultiHorizonEngine::clampStopLossFraction(slFracFt, cycleEo, cycleFundings, capital);
-            }
-
+            int ci = cc.cycle + 1; // offset: cycle 0 is the existing trade
             std::vector<int> cycleEntryIds;
-            double cycleProfit = 0;
-
-            for (int i = 0; i < N; ++i)
+            for (const auto& e : cc.plan.entries)
             {
-                double entryPrice = priceLow + norm[i] * (priceHigh - priceLow);
-                if (entryPrice < 1e-18) entryPrice = 1e-18;
-
-                double tpPrice = MultiHorizonEngine::levelTP(
-                    entryPrice, cycleOh, cycleEo, cp, steepness, i, N, isShort, riskClamped, priceHigh);
-                if (dtBuffer > 1.0) tpPrice *= dtBuffer;
-                double slPrice = genSL ? MultiHorizonEngine::levelSL(entryPrice, cycleEo, isShort) : 0;
-
-                double fundFrac = (weightSum > 0) ? weights[i] / weightSum : 0;
-                double funding = capital * fundFrac;
-                if (funding <= 0) continue;
-                double fundQty = funding / entryPrice;
-                double breakEven = entryPrice * (1.0 + cycleOh);
-
-                cycleProfit += (tpPrice - entryPrice) * fundQty;
+                if (e.funding <= 0) continue;
 
                 TradeDatabase::EntryPoint nep;
                 nep.symbol = sym;
                 nep.entryId = db.nextEntryId();
-                nep.levelIndex = i;
-                nep.entryPrice = entryPrice;
-                nep.breakEven = breakEven;
-                nep.funding = funding;
-                nep.fundingQty = fundQty;
-                nep.effectiveOverhead = cycleEo;
-                nep.isShort = isShort;
-                nep.exitTakeProfit = tpPrice;
-                nep.exitStopLoss = slPrice;
+                nep.levelIndex = e.index;
+                nep.entryPrice = e.entryPrice;
+                nep.breakEven = e.breakEven;
+                nep.funding = e.funding;
+                nep.fundingQty = e.fundQty;
+                nep.effectiveOverhead = cc.plan.effectiveOH;
+                nep.isShort = sp.isShort;
+                nep.exitTakeProfit = e.tpUnit;
+                nep.exitStopLoss = sp.generateStopLosses ? e.slUnit : 0;
                 nep.traded = false;
                 nep.linkedTradeId = -1;
 
@@ -1437,9 +1275,6 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             }
 
             db.addChainMembers(ci, cycleEntryIds);
-
-            double cycleSavings = (cycleProfit > 0 && savingsRate > 0) ? cycleProfit * savingsRate : 0;
-            capital = capital + cycleProfit - cycleSavings;
         }
 
         db.saveEntryPoints(allEntries);
