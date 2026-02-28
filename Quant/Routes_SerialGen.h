@@ -40,9 +40,12 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
              "<label>Direction</label><select name='isShort'><option value='0'>LONG</option><option value='1'>SHORT</option></select><br>"
              "<label>Funding</label><select name='fundMode'><option value='1'>Pump only</option><option value='2'>Pump + Wallet</option></select><br>"
              "<label>Stop Losses</label><select name='generateStopLosses'><option value='0'>No</option><option value='1'>Yes</option></select><br>"
+             "<label>SL Fraction</label><input type='number' name='stopLossFraction' step='any' value='1' title='Fraction of position to sell at SL (0-1, 1 = full exit)'><br>"
              "<label>Range Above</label><input type='number' name='rangeAbove' step='any' value='0'><br>"
              "<label>Range Below</label><input type='number' name='rangeBelow' step='any' value='0'><br>"
              "<label>DT Count</label><input type='number' name='downtrendCount' value='1' title='Number of future downturn cycles to pre-fund (0 = disabled)'><br>"
+             "<label>SL Hedge Count</label><input type='number' name='stopLossHedgeCount' value='0' title='Future SL hits to pre-fund via TP inflation (0 = disabled)'><br>"
+             "<label>Future Trade Fees</label><input type='number' name='futureTradeCount' value='0' title='Future chain trades whose fees this TP must cover (0 = self only)'><br>"
              "<button>Generate Series</button></form>";
         res.set_content(html::wrap("Serial Generator", h.str()), "text/html");
     });
@@ -74,6 +77,9 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
         p.maxRisk = fd(f, "maxRisk");
         p.minRisk = fd(f, "minRisk");
         p.generateStopLosses = genSL;
+        p.futureTradeCount = fi(f, "futureTradeCount", 0);
+        p.stopLossFraction = fd(f, "stopLossFraction", 1.0);
+        p.stopLossHedgeCount = fi(f, "stopLossHedgeCount", 0);
         double walBal = db.loadWalletBalance();
         double availableFunds = p.portfolioPump;
         if (fundMode == 2) availableFunds += walBal;
@@ -92,9 +98,12 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
         double overhead = MultiHorizonEngine::computeOverhead(cur, qty, p);
         double riskClamped = (risk < 0) ? 0 : (risk > 1) ? 1 : risk;
         double dtBuffer = MultiHorizonEngine::calculateDowntrendBuffer(cur, qty, availableFunds, eo, p.minRisk, p.maxRisk, downtrendCount);
+        double slFrac = MultiHorizonEngine::stopLossSellFraction(p);
+        double slBuffer = MultiHorizonEngine::calculateStopLossBuffer(cur, qty, availableFunds, eo, p.minRisk, p.maxRisk, slFrac, p.stopLossHedgeCount);
+        double combinedBuffer = dtBuffer * slBuffer;
         struct SerialEntry { int idx; double entryPrice; double breakEven; double discount;
             double funding; double fundFrac; double fundQty; double tpTotal; double tpu; double tpGross;
-            double slTotal; double slu; double slLoss; };
+            double slTotal; double slu; double slLoss; double slQty; };
         std::vector<SerialEntry> entries;
         double priceLow, priceHigh;
         if (rangeAbove > 0.0 || rangeBelow > 0.0)
@@ -115,19 +124,20 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
             double entryPrice = priceLow + norm[i] * (priceHigh - priceLow);
             if (entryPrice < std::numeric_limits<double>::epsilon()) entryPrice = std::numeric_limits<double>::epsilon();
             double tpPrice = MultiHorizonEngine::levelTP(entryPrice, overhead, eo, p, steepness, i, N, isShort, riskClamped, priceHigh);
-            if (dtBuffer > 1.0) tpPrice *= dtBuffer;
+            if (combinedBuffer > 1.0) tpPrice *= combinedBuffer;
             double slPrice = MultiHorizonEngine::levelSL(entryPrice, eo, isShort);
             double fundFrac = (weightSum > 0) ? weights[i] / weightSum : 0;
             double funding = availableFunds * fundFrac;
             double fundQty = funding / entryPrice;
+            double slSellQty = fundQty * slFrac;
             double breakEven = entryPrice * (1.0 + overhead);
             double cost = entryPrice * fundQty;
             double tpTotal = tpPrice * fundQty;
             double tpGross = tpTotal - cost;
-            double slTotal = genSL ? slPrice * fundQty : 0;
-            double slLoss = genSL ? slTotal - cost : 0;
+            double slTotal = genSL ? slPrice * slSellQty : 0;
+            double slLoss = genSL ? slTotal - entryPrice * slSellQty : 0;
             double disc = cur > 0 ? ((cur - entryPrice) / cur * 100) : 0;
-            entries.push_back({i, entryPrice, breakEven, disc, funding, fundFrac, fundQty, tpTotal, tpPrice, tpGross, slTotal, slPrice, slLoss});
+            entries.push_back({i, entryPrice, breakEven, disc, funding, fundFrac, fundQty, tpTotal, tpPrice, tpGross, slTotal, slPrice, slLoss, slSellQty});
         }
         h << "<h1>Serial Plan: " << html::esc(sym) << " @ " << cur << "</h1>";
         h << "<div class='row'>"
@@ -137,10 +147,13 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
              "<div class='stat'><div class='lbl'>Direction</div><div class='val'>" << (isShort ? "SHORT" : "LONG") << "</div></div>"
              "<div class='stat'><div class='lbl'>Available</div><div class='val'>" << availableFunds << "</div></div>"
              "<div class='stat'><div class='lbl'>Steepness</div><div class='val'>" << steepness << "</div></div>"
-             "<div class='stat'><div class='lbl'>DT Buffer</div><div class='val'>" << dtBuffer << "x</div></div></div>";
+             "<div class='stat'><div class='lbl'>DT Buffer</div><div class='val'>" << dtBuffer << "x</div></div>"
+             "<div class='stat'><div class='lbl'>SL Buffer</div><div class='val'>" << slBuffer << "x</div></div>"
+             "<div class='stat'><div class='lbl'>SL Frac</div><div class='val'>" << (slFrac * 100) << "%</div></div>"
+             "<div class='stat'><div class='lbl'>Future Fees</div><div class='val'>" << p.futureTradeCount << "</div></div></div>";
         h << "<h2>Entry + Exit Tuples</h2><table><tr><th>Lvl</th><th>Entry</th><th>Discount</th><th>Qty</th><th>Cost</th>"
              "<th>Break Even</th><th>TP/unit</th><th>TP Total</th><th>TP Gross</th>";
-        if (genSL) h << "<th>SL/unit</th><th>SL Total</th><th>SL Loss</th>";
+        if (genSL) h << "<th>SL/unit</th><th>SL Qty</th><th>SL Total</th><th>SL Loss</th>";
         h << "</tr>";
         for (const auto& e : entries)
         {
@@ -149,7 +162,7 @@ inline void registerSerialGenRoutes(httplib::Server& svr, AppContext& ctx)
               << "<td>" << e.fundQty << "</td><td>" << cost << "</td><td>" << e.breakEven << "</td>"
               << "<td class='buy'>" << e.tpu << "</td><td class='buy'>" << e.tpTotal << "</td><td class='buy'>" << e.tpGross << "</td>";
             if (genSL)
-                h << "<td class='sell'>" << e.slu << "</td><td class='sell'>" << e.slTotal << "</td><td class='sell'>" << e.slLoss << "</td>";
+                h << "<td class='sell'>" << e.slu << "</td><td class='sell'>" << e.slQty << "</td><td class='sell'>" << e.slTotal << "</td><td class='sell'>" << e.slLoss << "</td>";
             h << "</tr>";
         }
         h << "</table>";

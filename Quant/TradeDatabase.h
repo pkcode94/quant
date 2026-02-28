@@ -1051,6 +1051,9 @@ tr:nth-child(even){background:#0f1b2d}
         bool   generateStopLosses         = false;
         double rangeAbove                 = 0.0;
         double rangeBelow                 = 0.0;
+        int    futureTradeCount           = 0;
+        double stopLossFraction           = 1.0;
+        int    stopLossHedgeCount         = 0;
     };
 
     void saveParamModels(const std::vector<ParamModel>& models)
@@ -1077,7 +1080,10 @@ tr:nth-child(even){background:#0f1b2d}
               << m.fundMode << ','
               << m.generateStopLosses << ','
               << m.rangeAbove << ','
-              << m.rangeBelow
+              << m.rangeBelow << ','
+              << m.futureTradeCount << ','
+              << m.stopLossFraction << ','
+              << m.stopLossHedgeCount
               << '\n';
         }
     }
@@ -1112,6 +1118,9 @@ tr:nth-child(even){background:#0f1b2d}
             if (std::getline(ss, tok, ',') && !tok.empty()) m.generateStopLosses   = (std::stoi(tok) != 0);
             if (std::getline(ss, tok, ',') && !tok.empty()) m.rangeAbove           = std::stod(tok);
             if (std::getline(ss, tok, ',') && !tok.empty()) m.rangeBelow           = std::stod(tok);
+            if (std::getline(ss, tok, ',') && !tok.empty()) m.futureTradeCount     = std::stoi(tok);
+            if (std::getline(ss, tok, ',') && !tok.empty()) m.stopLossFraction     = std::stod(tok);
+            if (std::getline(ss, tok, ',') && !tok.empty()) m.stopLossHedgeCount   = std::stoi(tok);
             out.push_back(m);
         }
         return out;

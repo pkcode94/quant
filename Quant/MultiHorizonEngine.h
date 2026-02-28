@@ -3,6 +3,7 @@
 #include "Trade.h"
 #include <vector>
 #include <cmath>
+#include <algorithm>
 
 // TP/SL horizon formula:
 //
@@ -51,6 +52,9 @@ struct HorizonParams
     bool   allowShortTrades           = false; // short trades disabled by default
     double maxRisk                    = 0.0;   // max TP fraction above entry (0 = disabled)
     double minRisk                    = 0.0;   // min TP fraction above break-even (floor)
+    int    futureTradeCount           = 0;     // future trades whose fees this TP must cover (0 = self only)
+    double stopLossFraction           = 1.0;   // fraction of position to sell at SL (0-1, 1 = full exit)
+    int    stopLossHedgeCount         = 0;     // future SL hits to pre-fund via TP inflation (0 = disabled)
 };
 
 struct HorizonLevel
@@ -67,7 +71,10 @@ public:
     static double computeOverhead(double price, double quantity, const HorizonParams& p)
     {
         double feeComponent = p.feeSpread * p.feeHedgingCoefficient * p.deltaTime;
-        double numerator = feeComponent * static_cast<double>(p.symbolCount);
+        // Scale by (1 + futureTradeCount) so this trade's TP covers fees
+        // for itself plus N future trades in the chain.
+        double tradeScale = 1.0 + static_cast<double>(std::max(0, p.futureTradeCount));
+        double numerator = feeComponent * static_cast<double>(p.symbolCount) * tradeScale;
         double pricePerQty = (quantity > 0.0) ? price / quantity : 0.0;
         double denominator = pricePerQty * p.portfolioPump + p.coefficientK;
         return (denominator != 0.0) ? numerator / denominator : 0.0;
@@ -179,6 +186,61 @@ public:
     {
         double sl = isShort ? entryPrice * (1.0 + eo) : entryPrice * (1.0 - eo);
         return (sl < 0.0) ? 0.0 : sl;
+    }
+
+    // Fraction of position to sell at SL (clamped to [0,1]).
+    static double stopLossSellFraction(const HorizonParams& p)
+    {
+        return (p.stopLossFraction < 0.0) ? 0.0
+             : (p.stopLossFraction > 1.0) ? 1.0
+             : p.stopLossFraction;
+    }
+
+    // Stop-loss hedging buffer: TP multiplier that pre-funds potential
+    // future SL hits, mirroring the downtrend buffer (§5.5) structure.
+    //
+    // Each pre-funded SL hit costs approximately EO of the position.
+    // The buffer scales TP upward so that the extra profit covers
+    // n_sl future SL events, shaped by the same axis-dependent
+    // sigmoid as the downtrend buffer but using stopLossFraction
+    // to scale the per-hit cost (partial SL = partial cost).
+    //
+    //   buffer = 1 + n_sl * slFraction * perCycle
+    //
+    //   n_sl = 0  ->  1 (disabled)
+    //   slFraction = 0.25  ->  each SL hit costs 25% of full EO
+    static double calculateStopLossBuffer(double price, double quantity,
+                                          double portfolioPump,
+                                          double effectiveOverhead,
+                                          double minRisk, double maxRisk,
+                                          double slFraction,
+                                          int slHedgeCount = 0)
+    {
+        if (slHedgeCount <= 0)
+            return 1.0;
+        double delta = positionDelta(price, quantity, portfolioPump);
+        if (delta <= 0.0)
+            return 1.0;
+
+        double lower = minRisk;
+        double upper = (maxRisk > 0.0) ? maxRisk : effectiveOverhead;
+        if (upper < lower) upper = lower;
+
+        double t = delta / (delta + 1.0);
+        double alpha = (delta < 0.1) ? 0.1 : delta;
+
+        double sig0 = sigmoid(-alpha * 0.5);
+        double sig1 = sigmoid( alpha * 0.5);
+        double sigRange = sig1 - sig0;
+        if (sigRange < 1e-12) sigRange = 1.0;
+        double sigVal = sigmoid(alpha * (t - 0.5));
+        double norm = (sigVal - sig0) / sigRange;
+
+        double frac = (slFraction < 0.0) ? 0.0
+                    : (slFraction > 1.0) ? 1.0
+                    : slFraction;
+        double perCycle = lower + norm * (upper - lower);
+        return 1.0 + static_cast<double>(slHedgeCount) * frac * perCycle;
     }
 
 

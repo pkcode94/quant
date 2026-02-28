@@ -234,6 +234,9 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         p.surplusRate = fd(f, "surplusRate");
         p.maxRisk = fd(f, "maxRisk");
         p.minRisk = fd(f, "minRisk");
+        p.futureTradeCount = fi(f, "futureTradeCount", 0);
+        p.stopLossFraction = fd(f, "stopLossFraction", 1.0);
+        p.stopLossHedgeCount = fi(f, "stopLossHedgeCount", 0);
 
         double walBal = db.loadWalletBalance();
         double availableFunds = p.portfolioPump;
@@ -287,10 +290,14 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             double eo = MultiHorizonEngine::effectiveOverhead(cur, qty, p);
             double overhead = MultiHorizonEngine::computeOverhead(cur, qty, p);
             double dtBuffer = MultiHorizonEngine::calculateDowntrendBuffer(cur, qty, availableFunds, eo, p.minRisk, p.maxRisk, downtrendCount);
+            double slFrac1 = MultiHorizonEngine::stopLossSellFraction(p);
+            double slBuf1 = MultiHorizonEngine::calculateStopLossBuffer(cur, qty, availableFunds, eo, p.minRisk, p.maxRisk, slFrac1, p.stopLossHedgeCount);
+            double combinedBuffer = dtBuffer * slBuf1;
 
             j << "{\"symbol\":\"" << sym << "\",\"currentPrice\":" << cur
               << ",\"overhead\":" << overhead << ",\"effective\":" << eo
               << ",\"dtBuffer\":" << dtBuffer
+              << ",\"slBuffer\":" << slBuf1
               << ",\"isShort\":" << (isShort ? "true" : "false")
               << ",\"levels\":[";
             bool first = true;
@@ -300,7 +307,7 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
                 if (entryPrice < 1e-18) entryPrice = 1e-18;
 
                 double tpPrice = MultiHorizonEngine::levelTP(entryPrice, overhead, eo, p, steepness, i, N, isShort, riskClamped, priceHigh);
-                if (dtBuffer > 1.0) tpPrice *= dtBuffer;
+                if (combinedBuffer > 1.0) tpPrice *= combinedBuffer;
                 double slPrice = MultiHorizonEngine::levelSL(entryPrice, eo, isShort);
 
                 double fundFrac = (weightSum > 0) ? weights[i] / weightSum : 0;
@@ -358,6 +365,9 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         p.surplusRate = fd(f, "surplusRate");
         p.maxRisk = fd(f, "maxRisk");
         p.minRisk = fd(f, "minRisk");
+        p.futureTradeCount = fi(f, "futureTradeCount", 0);
+        p.stopLossFraction = fd(f, "stopLossFraction", 1.0);
+        p.stopLossHedgeCount = fi(f, "stopLossHedgeCount", 0);
 
         double walBal = db.loadWalletBalance();
         double availableFunds = p.portfolioPump;
@@ -428,6 +438,10 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             double cycleOh = MultiHorizonEngine::computeOverhead(currentPrice, qty, cp);
             double dtBuffer = MultiHorizonEngine::calculateDowntrendBuffer(
                 currentPrice, qty, capital, cycleEo, cp.minRisk, cp.maxRisk, downtrendCount);
+            double slFrac = MultiHorizonEngine::stopLossSellFraction(cp);
+            double slBuf = MultiHorizonEngine::calculateStopLossBuffer(
+                currentPrice, qty, capital, cycleEo, cp.minRisk, cp.maxRisk, slFrac, cp.stopLossHedgeCount);
+            double combinedBuffer = dtBuffer * slBuf;
 
             j << "{\"cycle\":" << ci
               << ",\"capital\":" << capital
@@ -444,7 +458,7 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
 
                 double tpPrice = MultiHorizonEngine::levelTP(
                     entryPrice, cycleOh, cycleEo, cp, steepness, i, N, isShort, riskClamped, priceHigh);
-                if (dtBuffer > 1.0) tpPrice *= dtBuffer;
+                if (combinedBuffer > 1.0) tpPrice *= combinedBuffer;
                 double slPrice = genSL ? MultiHorizonEngine::levelSL(entryPrice, cycleEo, isShort) : 0;
 
                 double fundFrac = (weightSum > 0) ? weights[i] / weightSum : 0;
@@ -512,6 +526,9 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
               << ",\"generateStopLosses\":" << (m.generateStopLosses ? "true" : "false")
               << ",\"rangeAbove\":" << m.rangeAbove
               << ",\"rangeBelow\":" << m.rangeBelow
+              << ",\"futureTradeCount\":" << m.futureTradeCount
+              << ",\"stopLossFraction\":" << m.stopLossFraction
+              << ",\"stopLossHedgeCount\":" << m.stopLossHedgeCount
               << "}";
         }
         j << "]";
@@ -544,6 +561,9 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         m.generateStopLosses = (fv(f, "generateStopLosses") == "1");
         m.rangeAbove = fd(f, "rangeAbove");
         m.rangeBelow = fd(f, "rangeBelow");
+        m.futureTradeCount = fi(f, "futureTradeCount", 0);
+        m.stopLossFraction = fd(f, "stopLossFraction", 1.0);
+        m.stopLossHedgeCount = fi(f, "stopLossHedgeCount", 0);
         db.addParamModel(m);
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_content("{\"ok\":true}", "application/json");
@@ -1253,6 +1273,9 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         p.surplusRate = fd(f, "surplusRate");
         p.maxRisk = fd(f, "maxRisk");
         p.minRisk = fd(f, "minRisk");
+        p.futureTradeCount = fi(f, "futureTradeCount", 0);
+        p.stopLossFraction = fd(f, "stopLossFraction", 1.0);
+        p.stopLossHedgeCount = fi(f, "stopLossHedgeCount", 0);
 
         double walBal = db.loadWalletBalance();
         double availableFunds = p.portfolioPump;
@@ -1311,6 +1334,10 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             double cycleOh = MultiHorizonEngine::computeOverhead(currentPrice, qty, cp);
             double dtBuffer = MultiHorizonEngine::calculateDowntrendBuffer(
                 currentPrice, qty, capital, cycleEo, cp.minRisk, cp.maxRisk, downtrendCount);
+            double slFrac2 = MultiHorizonEngine::stopLossSellFraction(cp);
+            double slBuf2 = MultiHorizonEngine::calculateStopLossBuffer(
+                currentPrice, qty, capital, cycleEo, cp.minRisk, cp.maxRisk, slFrac2, cp.stopLossHedgeCount);
+            double combinedBuffer = dtBuffer * slBuf2;
 
             std::vector<int> cycleEntryIds;
             double cycleProfit = 0;
@@ -1322,7 +1349,7 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
 
                 double tpPrice = MultiHorizonEngine::levelTP(
                     entryPrice, cycleOh, cycleEo, cp, steepness, i, N, isShort, riskClamped, priceHigh);
-                if (dtBuffer > 1.0) tpPrice *= dtBuffer;
+                if (combinedBuffer > 1.0) tpPrice *= combinedBuffer;
                 double slPrice = genSL ? MultiHorizonEngine::levelSL(entryPrice, cycleEo, isShort) : 0;
 
                 double fundFrac = (weightSum > 0) ? weights[i] / weightSum : 0;

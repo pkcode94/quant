@@ -25,6 +25,9 @@ All equations extracted from the engine source code. Variables are defined once 
 | $R_{\max}$ | Max risk (TP ceiling fraction) | $R_{\max} \geq 0$ |
 | $R_{\min}$ | Min risk (TP floor fraction above break-even) | $R_{\min} \geq 0$ |
 | $\phi$ | Exit fraction (portion of holdings to sell) | $\phi \in [0, 1]$ |
+| $\phi_{\text{sl}}$ | SL fraction (portion of position to sell at SL) | $\phi_{\text{sl}} \in [0, 1]$ |
+| $n_f$ | Future trade count (chain trades whose fees to pre-hedge) | $n_f \geq 0$ |
+| $n_{\text{sl}}$ | SL hedge count (future SL hits to pre-fund) | $n_{\text{sl}} \geq 0$ |
 | $f_{\text{buy}}$ | Buy fee rate | $f_{\text{buy}} \geq 0$ |
 | $f_{\text{sell}}$ | Sell fee rate | $f_{\text{sell}} \geq 0$ |
 
@@ -42,11 +45,11 @@ $$
 
 $$
 \boxed{
-\text{OH}(P, q) = \frac{\mathcal{F} \cdot n_s}{\dfrac{P}{q} \cdot T + K}
+\text{OH}(P, q) = \frac{\mathcal{F} \cdot n_s \cdot (1 + n_f)}{\dfrac{P}{q} \cdot T + K}
 }
 $$
 
-The overhead normalises fee costs against the per-unit price ratio scaled by pump capital, with $K$ as an additive stabiliser.
+The overhead normalises fee costs against the per-unit price ratio scaled by pump capital, with $K$ as an additive stabiliser. The factor $(1 + n_f)$ scales the overhead so this trade's TP covers fees for $n_f$ future chain trades ($n_f = 0$ means self only).
 
 ### 2.3 — Effective Overhead
 
@@ -339,6 +342,20 @@ $$
 }
 $$
 
+### 5.4b — Fractional Stop-Loss Exit
+
+The SL fraction $\phi_{\text{sl}} \in [0, 1]$ controls how much of the position is sold when the SL price is hit:
+
+$$
+q_{\text{sl}} = q_i \cdot \phi_{\text{sl}}
+$$
+
+At $\phi_{\text{sl}} = 1$, the entire position exits (default). At $\phi_{\text{sl}} = 0.25$, only a quarter sells — the rest remains open. The loss at SL hit is:
+
+$$
+\text{Loss}_{\text{sl}} = -\text{EO} \cdot P_e \cdot q_i \cdot \phi_{\text{sl}}
+$$
+
 ### 5.5 — Downtrend Buffer (`calculateDowntrendBuffer`)
 
 Computes a position-derived TP multiplier with **axis-dependent sigmoid curvature**.
@@ -395,14 +412,14 @@ $$
 **Per-cycle buffer** (sigmoid between asymptotes):
 
 $$
-\text{per\_cycle} = R_{\min} + \hat\sigma_{\alpha_d}(t) \cdot (\text{upper} - R_{\min})
+\text{pc} = R_{\min} + \hat\sigma_{\alpha_d}(t) \cdot (\text{upper} - R_{\min})
 $$
 
 **Downtrend buffer:**
 
 $$
 \boxed{
-\text{buffer} = 1 + n_d \cdot \text{per\_cycle}
+\text{buffer} = 1 + n_d \cdot \text{pc}
 }
 $$
 
@@ -413,6 +430,24 @@ $$
 When $n_d = 0$ or $\delta = 0$, the multiplier is $1$ (no adjustment).
 When $R_{\min} = R_{\max} = 0$, the upper bound is $\text{EO}$ and the lower is $0$,
 preserving time sensitivity through $\Delta t$.
+
+### 5.6 — Stop-Loss Hedge Buffer (`calculateStopLossBuffer`)
+
+Mirrors the downtrend buffer but pre-funds potential future SL hits. Each pre-funded SL costs a fraction $\phi_{\text{sl}}$ of the per-cycle amount:
+
+$$
+\boxed{
+\text{buffer}_{\text{sl}} = 1 + n_{\text{sl}} \cdot \phi_{\text{sl}} \cdot \text{pc}
+}
+$$
+
+where $\text{pc}$ is the same per-cycle cost from §5.5, $n_{\text{sl}}$ is the number of future SL hits to pre-fund, and $\phi_{\text{sl}}$ is the SL fraction (§5.4b).
+
+The combined TP multiplier applies both buffers:
+
+$$
+\text{TP}_{\text{adj}} = \text{TP}_{\text{base}} \cdot \text{buffer}_{\text{dt}} \cdot \text{buffer}_{\text{sl}}
+$$
 
 ---
 

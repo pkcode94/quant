@@ -82,6 +82,12 @@ inline void registerSimulatorRoutes(httplib::Server& svr, AppContext& ctx)
              "<input type='number' name='minRisk' step='any' value='0'><br>"
              "<label>DT Count (downturn cycles to buffer)</label>"
              "<input type='number' name='downtrendCount' value='1'><br>"
+             "<label>SL Fraction (0-1, fraction sold at SL)</label>"
+             "<input type='number' name='stopLossFraction' step='any' value='1'><br>"
+             "<label>SL Hedge Count (future SL hits to pre-fund)</label>"
+             "<input type='number' name='stopLossHedgeCount' value='0'><br>"
+             "<label>Future Trade Fees (chain trades to pre-hedge)</label>"
+             "<input type='number' name='futureTradeCount' value='0'><br>"
              "<h3>Chain Mode</h3>"
              "<label>Chain Cycles</label><select name='chainCycles'><option value='0'>Off</option><option value='1'>On</option></select><br>"
              "<label>Savings Rate (0-1, fraction of profit saved)</label>"
@@ -180,6 +186,12 @@ inline void registerSimulatorRoutes(httplib::Server& svr, AppContext& ctx)
              "<input type='number' name='minRisk' step='any' value='0'><br>"
              "<label>DT Count (downturn cycles to buffer)</label>"
              "<input type='number' name='downtrendCount' value='1'><br>"
+             "<label>SL Fraction (0-1, fraction sold at SL)</label>"
+             "<input type='number' name='stopLossFraction' step='any' value='1'><br>"
+             "<label>SL Hedge Count (future SL hits to pre-fund)</label>"
+             "<input type='number' name='stopLossHedgeCount' value='0'><br>"
+             "<label>Future Trade Fees (chain trades to pre-hedge)</label>"
+             "<input type='number' name='futureTradeCount' value='0'><br>"
              "<h3>Chain Mode</h3>"
              "<label>Chain Cycles</label><select name='chainCycles'><option value='0'>Off</option><option value='1'>On</option></select><br>"
              "<label>Savings Rate (0-1, fraction of profit saved)</label>"
@@ -218,6 +230,9 @@ inline void registerSimulatorRoutes(httplib::Server& svr, AppContext& ctx)
         cfg.horizonParams.minRisk                 = fd(f, "minRisk");
         cfg.horizonParams.horizonCount            = fi(f, "entryLevels", 5);
         cfg.horizonParams.portfolioPump           = cfg.startingCapital;
+        cfg.horizonParams.futureTradeCount        = fi(f, "futureTradeCount", 0);
+        cfg.horizonParams.stopLossFraction        = fd(f, "stopLossFraction", 1.0);
+        cfg.horizonParams.stopLossHedgeCount      = fi(f, "stopLossHedgeCount", 0);
         cfg.downtrendCount                        = fi(f, "downtrendCount", 1);
         cfg.chainCycles                             = (fv(f, "chainCycles") == "1");
         cfg.savingsRate                             = fd(f, "savingsRate");

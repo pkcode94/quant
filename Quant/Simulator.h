@@ -248,19 +248,26 @@ public:
                 for (const auto& el : exitLevels)
                     hedgePool += el.grossProfit;
 
-                // Apply downtrend buffer to exit TP prices
-                if (cfg.downtrendCount > 0)
+                // Apply downtrend buffer and SL hedge buffer to exit TP prices
                 {
                     double eo = MultiHorizonEngine::effectiveOverhead(
                         st.entryPrice, st.quantity, exitParams);
-                    double dtBuf = MultiHorizonEngine::calculateDowntrendBuffer(
+                    double dtBuf = (cfg.downtrendCount > 0)
+                        ? MultiHorizonEngine::calculateDowntrendBuffer(
+                              st.entryPrice, st.quantity, exitParams.portfolioPump,
+                              eo, exitParams.minRisk, exitParams.maxRisk,
+                              cfg.downtrendCount)
+                        : 1.0;
+                    double slFrac = MultiHorizonEngine::stopLossSellFraction(exitParams);
+                    double slBuf = MultiHorizonEngine::calculateStopLossBuffer(
                         st.entryPrice, st.quantity, exitParams.portfolioPump,
                         eo, exitParams.minRisk, exitParams.maxRisk,
-                        cfg.downtrendCount);
-                    if (dtBuf > 1.0)
+                        slFrac, exitParams.stopLossHedgeCount);
+                    double combinedBuf = dtBuf * slBuf;
+                    if (combinedBuf > 1.0)
                     {
                         for (auto& el : exitLevels)
-                            el.tpPrice *= dtBuf;
+                            el.tpPrice *= combinedBuf;
                     }
                 }
 

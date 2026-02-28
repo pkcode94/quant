@@ -74,14 +74,14 @@ where $f_s$ is the fee spread (exchange fee rate plus slippage), $f_h$ is the fe
 ### 3.2 Raw Overhead
 
 $$
-\text{OH}(P, q) = \frac{\mathcal{F} \cdot n_s}{\dfrac{P}{q} \cdot T + K}
+\text{OH}(P, q) = \frac{\mathcal{F} \cdot n_s \cdot (1 + n_f)}{\dfrac{P}{q} \cdot T + K}
 $$
 
-where $P$ is the price per unit, $q$ is the quantity, $n_s$ is the number of symbols in the portfolio, $T$ is the portfolio pump (injected capital), and $K$ is an additive offset.
+where $P$ is the price per unit, $q$ is the quantity, $n_s$ is the number of symbols in the portfolio, $T$ is the portfolio pump (injected capital), $K$ is an additive offset, and $n_f$ is the **future trade count** — the number of future chain trades whose fees this position's TP must pre-cover ($n_f = 0$ means self only).
 
-**Derivation.** The numerator represents the total fee cost across all symbols. The denominator is the *effective capital density* — the per-unit price scaled by pump capital, with $K$ as a stabiliser to prevent division by zero when $T = 0$. As $T$ grows, the denominator grows, and overhead shrinks: more capital means fees are a smaller fraction of the position.
+**Derivation.** The numerator represents the total fee cost across all symbols, scaled by $(1 + n_f)$ so that a single profitable exit hedges the fees of $n_f$ subsequent trades in the chain. The denominator is the *effective capital density* — the per-unit price scaled by pump capital, with $K$ as a stabiliser to prevent division by zero when $T = 0$. As $T$ grows, the denominator grows, and overhead shrinks: more capital means fees are a smaller fraction of the position.
 
-**Interpretation.** OH is the fraction of position value consumed by fees. A position at OH = 0.03 needs a 3% price increase just to break even (before surplus).
+**Interpretation.** OH is the fraction of position value consumed by fees. A position at OH = 0.03 needs a 3% price increase just to break even (before surplus). When $n_f > 0$, the overhead inflates proportionally — a trade with $n_f = 2$ needs roughly $3\times$ the overhead of $n_f = 0$ to pre-fund two future trades' fees.
 
 ### 3.3 Effective Overhead
 
@@ -280,7 +280,32 @@ $$
 \text{SL}^{\text{long}} = P_e \cdot (1 - \text{EO}), \qquad \text{SL}^{\text{short}} = P_e \cdot (1 + \text{EO})
 $$
 
-The stop-loss is placed at exactly the effective overhead distance *below* entry for LONG (above for SHORT). If the SL is hit, the loss equals the overhead — the maximum loss is bounded by the same formula that governs the TP.
+The stop-loss price is placed at exactly the effective overhead distance *below* entry for LONG (above for SHORT).
+
+### 5.6 Fractional Stop-Loss Exit
+
+The stop-loss fraction $\phi_{\text{sl}} \in [0, 1]$ controls how much of the position is sold when the SL price is hit:
+
+$$
+q_{\text{sl}} = q_i \cdot \phi_{\text{sl}}
+$$
+
+| $\phi_{\text{sl}}$ | Behaviour | Use case |
+|---------------------|-----------|----------|
+| 1.0 | Full exit | Close the entire position at SL (default, maximum loss containment) |
+| 0.5 | Half exit | Reduce exposure by 50%, keep the rest open for recovery |
+| 0.25 | Quarter exit | Trim position, absorb a small loss, hold for reversal |
+| 0.0 | No exit | SL is tracked but does not execute (monitoring only) |
+
+**Rationale.** A full stop-loss ($\phi_{\text{sl}} = 1$) maximises loss containment but eliminates recovery potential. In trending markets, a partial SL reduces exposure while preserving the ability to profit if the market reverses. The remaining $(1 - \phi_{\text{sl}}) \cdot q_i$ stays open with the original TP still active.
+
+**Loss at SL hit:**
+
+$$
+\text{Loss}_{\text{sl}} = (\text{SL} - P_e) \cdot q_{\text{sl}} = -\text{EO} \cdot P_e \cdot q_i \cdot \phi_{\text{sl}}
+$$
+
+The maximum loss per level is proportional to $\phi_{\text{sl}}$. At $\phi_{\text{sl}} = 0.25$, the immediate loss is one quarter of what a full SL would produce.
 
 ---
 
@@ -368,13 +393,13 @@ $$
 **Per-cycle buffer:**
 
 $$
-\text{per\_cycle} = R_{\min} + \hat\sigma_{\alpha_d}(t) \cdot (\text{upper} - R_{\min})
+\text{pc} = R_{\min} + \hat\sigma_{\alpha_d}(t) \cdot (\text{upper} - R_{\min})
 $$
 
 **Total buffer:**
 
 $$
-\text{buffer} = 1 + n_d \cdot \text{per\_cycle}
+\text{buffer} = 1 + n_d \cdot \text{pc}
 $$
 
 $$
@@ -393,6 +418,31 @@ $$
 ### 7.4 Time Sensitivity
 
 When $R_{\max} = 0$, the upper asymptote falls back to $\text{EO}$, which contains the $\Delta t$ factor through the fee component. This makes the buffer *time-sensitive* — longer holding periods inflate the buffer automatically. When $R_{\max} > 0$, it acts as a hard cap regardless of time.
+
+### 7.5 Stop-Loss Hedge Buffer
+
+Mirrors the downtrend buffer (§7.2) but pre-funds potential future stop-loss hits instead of downtrend re-entries. When $n_{\text{sl}} > 0$, TPs are inflated so that the extra profit covers $n_{\text{sl}}$ future SL events at the configured fractional loss.
+
+$$
+\text{buffer}_{\text{sl}} = 1 + n_{\text{sl}} \cdot \phi_{\text{sl}} \cdot \text{pc}
+$$
+
+where $n_{\text{sl}}$ is the number of future SL hits to pre-fund, $\phi_{\text{sl}}$ is the SL fraction (§5.6), and $\text{pc}$ is the same per-cycle cost from §7.2 (sigmoid-interpolated between $R_{\min}$ and upper).
+
+The combined TP multiplier applies both buffers multiplicatively:
+
+$$
+\text{TP}_{\text{adj}} = \text{TP}_{\text{base}} \cdot \text{buffer}_{\text{dt}} \cdot \text{buffer}_{\text{sl}}
+$$
+
+| $\phi_{\text{sl}}$ | $n_{\text{sl}}$ | Effect on TP |
+|---------------------|-----------------|-------------|
+| 1.0 | 2 | Full SL losses pre-funded — TP inflates by $2 \times \text{pc}$ |
+| 0.25 | 2 | Quarter-SL losses pre-funded — TP inflates by $0.5 \times \text{pc}$ |
+| 1.0 | 0 | Disabled — no SL hedging |
+| 0.0 | any | Disabled — zero fraction means zero cost per SL |
+
+**Rationale.** The downtrend buffer asks: *"if the market drops after exit, can I re-enter?"* The SL hedge buffer asks: *"if future trades hit their SLs, can I absorb those losses?"* Together they provide a complete pre-funding mechanism — one for market risk (re-entry cost), one for execution risk (SL losses).
 
 ---
 
@@ -727,8 +777,10 @@ All formulas mirror. TP targets decrease below entry. SL targets increase above 
 | $F_i$ | §4.3 | Funding fraction per level |
 | $\text{TP}_i$ | §5 | Take-profit target |
 | $\text{SL}_i$ | §5.5 | Stop-loss target |
+| $q_{\text{sl}}$ | §5.6 | Fractional SL exit quantity |
 | $q_i^{\text{sell}}$ | §6.2 | Exit quantity per level |
 | buffer | §7.2 | Downtrend TP multiplier |
+| $\text{buffer}_{\text{sl}}$ | §7.5 | Stop-loss hedge TP multiplier |
 | Coverage | §11.4 | Fee hedging verification |
 | $\partial\hat\sigma/\partial t$, $\partial\hat\sigma/\partial\alpha$ | §15.1 | Sigmoid gradient primitives |
 | $\partial\text{OH}/\partial T$ | §15.2 | Capital-overhead sensitivity |
@@ -798,7 +850,7 @@ $$
 
 ### 15.2 Overhead Derivatives
 
-Let $D = \frac{P}{q} \cdot T + K$ (the denominator). Then $\text{OH} = \frac{\mathcal{F} \cdot n_s}{D}$ where $\mathcal{F} = f_s \cdot f_h \cdot \Delta t$.
+Let $D = \frac{P}{q} \cdot T + K$ (the denominator). Then $\text{OH} = \frac{\mathcal{F} \cdot n_s \cdot (1 + n_f)}{D}$ where $\mathcal{F} = f_s \cdot f_h \cdot \Delta t$.
 
 **Numerator parameters** (linear in numerator — derivative is $\text{OH}$ divided by the variable):
 
@@ -808,6 +860,14 @@ $$
 \frac{\partial\,\text{OH}}{\partial \Delta t} = \frac{\text{OH}}{\Delta t}, \qquad
 \frac{\partial\,\text{OH}}{\partial n_s} = \frac{\text{OH}}{n_s}
 $$
+
+**Future trade count** ($n_f$ is discrete, but the derivative of OH with respect to the continuous relaxation):
+
+$$
+\frac{\partial\,\text{OH}}{\partial n_f} = \frac{\text{OH}}{1 + n_f}
+$$
+
+Increasing $n_f$ by 1 adds approximately $\text{OH}/(1+n_f)$ to the overhead — the marginal cost of hedging each additional future trade decreases as $n_f$ grows.
 
 **Denominator parameters** (inverse relationship — overhead *decreases* as these grow):
 
@@ -999,6 +1059,31 @@ $$
 
 The full gradient chains through $\delta \to t \to \hat\sigma \to \text{pc} \to \text{buffer}$ and also through $\delta \to \alpha_d \to \hat\sigma$, creating a coupled nonlinear sensitivity.
 
+### 15.8b Stop-Loss Buffer Derivatives
+
+$\text{buffer}_{\text{sl}} = 1 + n_{\text{sl}} \cdot \phi_{\text{sl}} \cdot \text{pc}$
+
+**With respect to SL fraction:**
+
+$$
+\boxed{
+\frac{\partial\,\text{buffer}_{\text{sl}}}{\partial \phi_{\text{sl}}} = n_{\text{sl}} \cdot \text{pc}
+}
+$$
+
+**With respect to SL hedge count** (continuous relaxation):
+
+$$
+\frac{\partial\,\text{buffer}_{\text{sl}}}{\partial n_{\text{sl}}} = \phi_{\text{sl}} \cdot \text{pc}
+$$
+
+Both derivatives are positive — increasing either the SL fraction or the hedge count inflates the TP buffer. The combined buffer gradient is:
+
+$$
+\frac{\partial}{\partial \phi_{\text{sl}}} (\text{buffer}_{\text{dt}} \cdot \text{buffer}_{\text{sl}})
+= \text{buffer}_{\text{dt}} \cdot n_{\text{sl}} \cdot \text{pc}
+$$
+
 ### 15.9 Chain Compounding Derivatives
 
 Capital at cycle $c+1$: $T_{c+1} = T_c + \Pi_c - \text{Sav}_c$ where $\text{Sav}_c = \Pi_c \cdot s_{\text{save}}$, so $T_{c+1} = T_c + \Pi_c(1 - s_{\text{save}})$.
@@ -1056,6 +1141,8 @@ The first term is the direct effect (higher surplus = higher profit per cycle). 
 | TP | $r$ | $(\text{TP}_{\max}-\text{TP}_{\min})(1-2\hat\sigma)$ | $\pm$ | Warps TP distribution |
 | $\Pi_i$ | $s$ | $\text{Funding}_i \cdot (1-n_i) \cdot f_h \cdot \Delta t$ | $+$ | More surplus ? more profit |
 | Buffer | $R_{\min}$ | $n_d(1-\hat\sigma)$ | $+$ | Floor raises buffer |
+| OH | $n_f$ | $\text{OH}/(1+n_f)$ | $+$ | Each future trade adds marginal overhead |
+| $\text{buffer}_{\text{sl}}$ | $\phi_{\text{sl}}$ | $n_{\text{sl}} \cdot \text{pc}$ | $+$ | More SL fraction ? more TP inflation |
 | $T_{c+1}$ | $s_{\text{save}}$ | $-\Pi_c$ | $-$ | Savings drain capital |
 
 ---
@@ -1069,13 +1156,13 @@ The system has a parameter vector $\theta$ of continuous tunable parameters and 
 **Tunable parameter vector:**
 
 $$
-\theta = \bigl[s,\; r,\; \alpha,\; f_h,\; R_{\max},\; R_{\min},\; s_{\text{save}},\; R_{\text{above}},\; R_{\text{below}},\; \Delta t\bigr]
+\theta = \bigl[s,\; r,\; \alpha,\; f_h,\; R_{\max},\; R_{\min},\; s_{\text{save}},\; R_{\text{above}},\; R_{\text{below}},\; \Delta t,\; \phi_{\text{sl}}\bigr]
 $$
 
 **Fixed context** (not optimised — determined by market or user):
 
 $$
-\text{context} = \bigl[P,\; q,\; T,\; f_s,\; K,\; n_s,\; N,\; n_d\bigr]
+\text{context} = \bigl[P,\; q,\; T,\; f_s,\; K,\; n_s,\; N,\; n_d,\; n_f,\; n_{\text{sl}}\bigr]
 $$
 
 $N$ and $n_d$ are discrete and handled separately (grid search or enumeration).
@@ -1093,6 +1180,7 @@ $N$ and $n_d$ are discrete and handled separately (grid search or enumeration).
 | $s_{\text{save}}$ | 0 | 0.99 | Can't save 100% |
 | $R_{\text{above}}$, $R_{\text{below}}$ | 0 | $P$ | Range within price |
 | $\Delta t$ | 0.01 | 10 | Time scaling |
+| $\phi_{\text{sl}}$ | 0 | 1 | SL exit fraction |
 
 ### 16.2 Objective Functions
 
