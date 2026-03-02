@@ -1598,10 +1598,10 @@ $\Sigma_3$ assumes $P_{\text{market}}$ eventually reaches $\text{TP}_i$. If the 
 
 In §§9–10, capital at cycle $c$ is treated as a scalar $T_c \in \mathbb{R}^+$. This is sufficient for deterministic computation but obscures the full structure: at any moment, the system has not one trajectory but a *superposition* of potential trajectories, each corresponding to a different subset of entry and exit levels triggering.
 
-Define the **trajectory space** $\mathcal{H}$ as a Hilbert-like space of dimension $2^N$ per cycle, where $N$ is the number of levels. Each basis vector $\lvert b\rangle$ represents a binary outcome vector:
+Define the **trajectory space** $\mathcal{H}$ as a Hilbert-like space of dimension $2^N$ per cycle, where $N$ is the number of levels. Each basis vector $\vert b \rangle$ represents a binary outcome vector:
 
 $$
-\lvert b\rangle = \lvert b_0, b_1, \ldots, b_{N-1}\rangle, \qquad b_i \in \lbrace 0, 1 \rbrace
+| b \rangle = | b_0, b_1, \ldots, b_{N-1} \rangle, \qquad b_i \in \{0, 1\}
 $$
 
 where $b_i = 1$ means level $i$ triggered (entry filled and TP hit) and $b_i = 0$ means it did not.
@@ -1611,7 +1611,7 @@ where $b_i = 1$ means level $i$ triggered (entry filled and TP hit) and $b_i = 0
 Before market observation, capital exists as a superposition:
 
 $$
-\lvert\Psi_c\rangle = \sum_{b \in \lbrace 0,1\rbrace^N} a_b \cdot \lvert b\rangle
+| \Psi_c \rangle = \sum_{b \in \{0,1\}^N} a_b \cdot | b \rangle
 $$
 
 where $a_b \in \mathbb{R}$ is the amplitude associated with outcome $b$, and the scalar capital for outcome $b$ is:
@@ -1624,25 +1624,25 @@ $$
 The **expected capital** is the inner product:
 
 $$
-\langle T_c \rangle = \sum_b \lvert a_b\rvert^2 \cdot T_c(b)
+\langle T_c \rangle = \sum_b |a_b|^2 \cdot T_c(b)
 $$
 
-In the fully deterministic case (all TPs hit), the state collapses to $\lvert 1, 1, \ldots, 1\rangle$ and $T_c = T_c(1^N)$ — the scalar value from §9.
+In the fully deterministic case (all TPs hit), the state collapses to $\vert 1, 1, \ldots, 1 \rangle$ and $T_c = T_c(1^N)$ — the scalar value from §9.
 
 #### A.3.3 The Observer Operator
 
 The **parameter choice** $\theta$ acts as an operator $\hat{O}_\theta$ on the state-vector:
 
 $$
-\hat{O}_\theta \lvert\Psi_c\rangle = \lvert\Psi_c'(\theta)\rangle
+\hat{O}_\theta \, | \Psi_c \rangle = | \Psi_c'(\theta) \rangle
 $$
 
-$\hat{O}_\theta$ does not change the market's price evolution — it changes *which levels exist to be triggered*. Different $\theta$ values produce different entry prices, TP targets, and funding allocations, thereby reshaping the amplitude distribution $\lbrace a_b \rbrace$.
+$\hat{O}_\theta$ does not change the market's price evolution — it changes *which levels exist to be triggered*. Different $\theta$ values produce different entry prices, TP targets, and funding allocations, thereby reshaping the amplitude distribution $\{a_b\}$.
 
 **Observation (market collapse).** When the market reaches a price $P_t$, levels whose entry price $P_e^{(i)} \geq P_t$ trigger. This is a **measurement** — it collapses a subset of the superposition:
 
 $$
-\lvert\Psi_c\rangle \;\overset{P_t}{\longrightarrow}\; \lvert\Psi_c^{\text{post}}\rangle
+| \Psi_c \rangle \;\xrightarrow{\; P_t \;}\; | \Psi_c^{\text{post}} \rangle
 $$
 
 The post-measurement state has $b_i$ fixed to 1 for all triggered levels, while untriggered levels remain in superposition (they may still trigger at future timesteps).
@@ -1650,7 +1650,7 @@ The post-measurement state has $b_i$ fixed to 1 for all triggered levels, while 
 **Full cycle collapse.** A cycle is complete when all levels have been resolved (either triggered and TP hit, or the cycle is terminated). At that point:
 
 $$
-\lvert\Psi_c\rangle \to \lvert b^*\rangle \quad \text{(a single basis vector)}
+| \Psi_c \rangle \to | b^* \rangle \quad \text{(a single basis vector)}
 $$
 
 and the scalar capital $T_{c+1} = T_c(b^*)$ becomes the initial condition for cycle $c+1$.
@@ -1660,17 +1660,17 @@ and the scalar capital $T_{c+1} = T_c(b^*)$ becomes the initial condition for cy
 Define the **attractor manifold** $\mathcal{A} \subset \mathcal{H}$ as the set of parameter configurations $\theta$ for which the expected chain growth is positive:
 
 $$
-\mathcal{A} = \bigl\lbrace\,\theta : \langle T_{c+1} \rangle > \langle T_c \rangle \;\;\forall\, c\,\bigr\rbrace
+\mathcal{A} = \{\, \theta \;:\; \langle T_{c+1} \rangle > \langle T_c \rangle \quad \forall \, c \,\}
 $$
 
 $\mathcal{A}$ is the region where the system's design guarantees compound. The boundary $\partial\mathcal{A}$ is where expected growth equals zero — the break-even manifold.
 
-**The non-intervention principle.** Once $\theta \in \mathcal{A}$ has been selected and the plan deployed, the Architect must refrain from local intervention (modifying individual level parameters, cancelling orders based on unrealised P&L, adjusting TPs mid-cycle). Each such intervention is a *non-unitary* operation on $\lvert\Psi_c\rangle$ — it alters the amplitude distribution in a way that is not compensated by the overhead formula.
+**The non-intervention principle.** Once $\theta \in \mathcal{A}$ has been selected and the plan deployed, the Architect must refrain from local intervention (modifying individual level parameters, cancelling orders based on unrealised P&L, adjusting TPs mid-cycle). Each such intervention is a *non-unitary* operation on $\vert \Psi_c \rangle$ — it alters the amplitude distribution in a way that is not compensated by the overhead formula.
 
 Formally, an intervention $\hat{I}$ satisfies:
 
 $$
-\hat{I}\,\hat{O}_\theta \lvert\Psi_c\rangle \neq \hat{O}_{\theta'} \lvert\Psi_c\rangle \quad \text{for any } \theta'
+\hat{I} \, \hat{O}_\theta \, | \Psi_c \rangle \neq \hat{O}_{\theta'} | \Psi_c \rangle \quad \text{for any } \theta'
 $$
 
 The intervened state cannot be expressed as any valid parameter configuration of $S$. It falls outside the attractor $\mathcal{A}$ — the fee-neutrality guarantees no longer hold, the overhead computation is invalidated for the modified levels, and the chain recurrence loses its monotonicity property ($\Sigma_4$).
@@ -1696,6 +1696,6 @@ The formal structure reveals three layers:
 
 The system $S$ is **conditionally complete**: every statement about outcomes *given* market inputs is decidable. It is **unconditionally incomplete**: no statement about future market inputs is provable. The incompleteness is not a deficiency — it is the structural boundary between engineering (what $S$ controls) and contingency (what $S$ does not). The Architect, operating as $M$, sits at this boundary — the meta-system that collapses the superposition of potential trajectories into a realised scalar outcome by choosing $\theta$, committing, and then preserving the deployed state through non-intervention.
 
-The capital state-vector $\lvert\Psi_c\rangle$ formalises what §9.5 described metaphorically: the superposition of entry and exit levels that the market "measures" into existence. The operator $\hat{O}_\theta$ formalises what the Architect does: not predict the measurement outcome, but choose the basis in which the measurement occurs. The attractor $\mathcal{A}$ formalises the design objective: choose $\theta$ such that the expected measurement outcome lies in the growth region, then refrain from disturbing the apparatus.
+The capital state-vector $\vert \Psi_c \rangle$ formalises what §9.5 described metaphorically: the superposition of entry and exit levels that the market "measures" into existence. The operator $\hat{O}_\theta$ formalises what the Architect does: not predict the measurement outcome, but choose the basis in which the measurement occurs. The attractor $\mathcal{A}$ formalises the design objective: choose $\theta$ such that the expected measurement outcome lies in the growth region, then refrain from disturbing the apparatus.
 
 This is the complete formal boundary of the system. $S$ guarantees the conditional. $M$ verifies the preconditions. $\mathcal{E}$ provides the input. The incompleteness is mapped, not solved — and that mapping is the final guarantee the framework can offer.
