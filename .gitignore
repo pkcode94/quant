@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+*.csproj
+/ByBitBot/ByBitService.cs
+/ByBitBot/Program.cs
+/ByBitBot/QuantMath.cs
+/ByBitBot/TradingSession.cs
