@@ -1,9 +1,0 @@
-Account Number,Transaction Description,Transaction Date,Transaction Type,Transaction Amount,Balance
-5678,Preauthorized Deposit from ABC BANK checking account XXXXXX1234,03/03/23,Credit,30.03,60.06
-5678,Preauthorized Deposit from ABC BANK checking account XXXXXX1234,02/02/22,Credit,20.02,30.03
-5678,Preauthorized Deposit from ABC BANK checking account XXXXXX1234,01/01/21,Credit,10.01,10.01
-5678,Withdrawal from ABC BANK ACCTVERIFY,01/01/21,Debit,-0.33,0.00
-5678,Deposit from ABC BANK ACCTVERIFY,01/01/21,Credit,0.22,0.33
-5678,Deposit from ABC BANK ACCTVERIFY,01/01/21,Credit,0.11,0.11
-5678,Preauthorized Withdrawal to ABC BANK checking account XXXXXX1234,01/01/21,Debit,-1.00,0.00
-5678,Preauthorized Deposit from ABC BANK checking account XXXXXX1234,01/01/21,Credit,1.00,1.00

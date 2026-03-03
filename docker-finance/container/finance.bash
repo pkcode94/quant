@@ -1,1 +1,0 @@
-src/finance/finance.bash

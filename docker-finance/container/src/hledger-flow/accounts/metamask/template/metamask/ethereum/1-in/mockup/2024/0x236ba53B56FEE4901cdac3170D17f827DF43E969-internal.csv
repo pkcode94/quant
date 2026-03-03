@@ -1,2 +1,0 @@
-date,blockchain,account_name,subaccount_name,subaccount_address,type,direction,tx_index,tx_hash,token_name,token_id,contract_address,symbol,block_hash,block_number,method_id,from_address,to_address,amount,fees
-2024-01-20 00:59:59,ethereum,metamask,phone:wallet-1,0x236ba53b56fee4901cdac3170d17f827df43e969,internal,IN,,0x9f8f20083eca2ec7a7d2e8d9ef589bbfee025bd97cc7974d0d721c83a051f71e,INTERNAL,,,ETH,,19044647,,0x74de5d4fcbf63e00296fd95d33236b9794016631,0x236ba53b56fee4901cdac3170d17f827df43e969,0.027865911611450157,

@@ -199,8 +199,7 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
              "<label>Price</label><input type='number' name='price' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
              "<label>Buy Fee</label><input type='number' name='buyFee' step='any' value='0'><br>"
-             "<label>Take Profit</label><input type='number' name='takeProfit' step='any' value='0'><br>"
-             "<label>Stop Loss</label><input type='number' name='stopLoss' step='any' value='0'><br>"
+             "<div style='color:#64748b;font-size:0.78em;margin-top:6px;'>Add exit strategies (TP/SL) after creating the trade</div>"
              "<button>Execute Buy</button></form>";
         h << "<form class='card' method='POST' action='/execute-sell'>"
              "<h3>Execute Sell</h3>"
@@ -220,8 +219,7 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
              "<label>Price</label><input type='number' name='price' step='any' required><br>"
              "<label>Quantity</label><input type='number' name='quantity' step='any' required><br>"
              "<label>Buy Fee</label><input type='number' name='buyFee' step='any' value='0'><br>"
-             "<label>Take Profit</label><input type='number' name='takeProfit' step='any' value='0'><br>"
-             "<label>Stop Loss</label><input type='number' name='stopLoss' step='any' value='0'><br>"
+             "<div style='color:#64748b;font-size:0.78em;margin-top:6px;'>Add exit strategies (TP/SL) after creating the trade</div>"
              "<button>Import Buy</button></form>";
         h << "<form class='card' method='POST' action='/add-trade'>"
              "<h3>Import Sell</h3>"
@@ -266,8 +264,8 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
             t.parentTradeId = -1;
             t.buyFee = fd(f, "buyFee");
             t.sellFee = 0.0;
-            t.takeProfit = fd(f, "takeProfit");
-            t.stopLoss = fd(f, "stopLoss");
+            t.takeProfit = 0.0;
+            t.stopLoss = 0.0;
         }
         else
         {
@@ -469,14 +467,12 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
         double price = fd(f, "price");
         double qty = fd(f, "quantity");
         double fee = fd(f, "buyFee");
-        double tp = fd(f, "takeProfit");
-        double sl = fd(f, "stopLoss");
         long long ts = html::parseDatetimeLocal(fv(f, "timestamp"));
         if (sym.empty() || price <= 0 || qty <= 0) { res.set_redirect("/trades?err=Invalid+buy+parameters", 303); return; }
         double walBal = db.loadWalletBalance();
         double needed = price * qty + fee;
         if (needed > walBal) { res.set_redirect("/trades?err=Insufficient+funds", 303); return; }
-        int bid = db.executeBuy(sym, price, qty, fee, tp, sl);
+        int bid = db.executeBuy(sym, price, qty, fee, 0, 0);
         if (ts > 0)
         {
             auto trades = db.loadTrades();

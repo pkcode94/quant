@@ -1,4 +1,0 @@
-"Currency from","Currency to","Status","Date","Exchange amount","Total fee","Exchange rate","Receiver","Amount received"
-"usdc","eth","finished","01 Jan 2023, 03:03:03","10123.45","150","1000.00","0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX","10.12345"
-"eth","usdc","finished","01 Jan 2022, 02:02:02","10.12345","100","1500.00","0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX","10123.45"
-"usdc","eth","finished","01 Jan 2021, 01:01:01","20246.9","150","2000.00","0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX","10.12345"

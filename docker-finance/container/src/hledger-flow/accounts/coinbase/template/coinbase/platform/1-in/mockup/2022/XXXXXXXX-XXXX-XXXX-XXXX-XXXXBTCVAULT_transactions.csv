@@ -1,2 +1,0 @@
-info_id,info_type,info_status,info_amount_amount,info_amount_currency,info_native_amount_amount,info_native_amount_currency,info_created_at,info_resource,info_resource_path
-XXXXXXXX-XXXX-XXXX-XXXX-XBTCVAULT001,transfer,completed,0.05432109,BTC,1288.78,USD,2023-02-02T02:02:03Z,transaction,/v2/accounts/XXXXXXXX-XXXX-XXXX-XXXX-XXXXBTCVAULT/transactions/XXXXXXXX-XXXX-XXXX-XXXX-XBTCVAULT001

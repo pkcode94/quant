@@ -1,2 +1,0 @@
-type,account_id,created_at,destination,subtotal,fee,total,txid
-transfer_out,XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXX0,2022-03-03 03:03:03.000003+00,,,,10.00000000,ABCDEF54321

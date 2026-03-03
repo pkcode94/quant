@@ -1,7 +1,0 @@
-client/Dockerfiles/local/dev-tools/Dockerfile
-client/Dockerfiles/local/dev-tools/docker-compose.yml
-client/Dockerfiles/local/finance/Dockerfile
-client/Dockerfiles/local/finance/docker-compose.yml
-client/Dockerfiles/remote/build-push.bash
-client/Doxygen/html
-gitea-merge.bash

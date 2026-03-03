@@ -1,6 +1,0 @@
-Transaction,Description,Token Quantity,Value,Status,Date,Listing,Url,Transaction ID
-Buy order,"123 ABC Ave, Anytown, WA 12345",10,100,complete,2022-02-02T02:02:02.002Z,"123 ABC Ave, Anytown, WA 12345",https://www.lofty.ai/property_deal/123-ABC-Ave_Anytown-WA-12345,XXXXXXXXXXXXXXXXXXXXXXXXX0
-Rent Payment,"123 ABC Ave, Anytown, WA 12345",10,1.099,complete,2022-02-03T02:03:03.003Z,"123 ABC Ave, Anytown, WA 12345",https://www.lofty.ai/property_deal/123-ABC-Ave_Anytown-WA-12345,XXXXXXXXXXXXXXXXXXXXXXXXX1
-Rent Payment,"123 ABC Ave, Anytown, WA 12345",10,1.101,complete,2022-02-04T02:04:04.004Z,"123 ABC Ave, Anytown, WA 12345",https://www.lofty.ai/property_deal/123-ABC-Ave_Anytown-WA-12345,XXXXXXXXXXXXXXXXXXXXXXXXX2
-Withdrawal,of Rental Income: 123 ABC Ave,,-2.001,complete,2022-02-05T05:05:05.005Z,"123 ABC Ave, Anytown, WA 12345",https://www.lofty.ai/property_deal/123-ABC-Ave_Anytown-WA-12345,XXXXXXXXXXXXXXXXXXXXXXXXX2
-Sell Back,"123 ABC Ave, Anytown, WA 12345",-10,-1010.00,complete,2022-02-06T06:06:06.006Z,"123 ABC Ave, Anytown, WA 12345",https://www.lofty.ai/property_deal/123-ABC-Ave_Anytown-WA-12345,XXXXXXXXXXXXXXXXXXXXXXXXX3

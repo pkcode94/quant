@@ -1,6 +1,0 @@
-This information is not intended to be and should not be construed as tax advice. Consult your tax advisor.
-Transaction fees are displayed separately for informational purposes only and are already incorporated into the Asset Out (Quantity) or Asset In (Quantity) as appropriate.
-
-DateTime,Transaction Type,Asset In (Quantity),Asset In (Currency),Asset Out (Quantity),Asset Out (Currency),Transaction Fee (Quantity),Transaction Fee (Currency),Market Value (USD)
-2023-12-01T01:02:03.123Z,BUY,500.000000,PYUSD,500.00,USD,0.00,USD,500.00
-2023-12-02T04:05:06.456Z,SELL,400.00,USD,400.000000,PYUSD,0.00,USD,400.00

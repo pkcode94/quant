@@ -1,2 +1,0 @@
-date,blockchain,account_name,subaccount_name,subaccount_address,type,direction,tx_index,tx_hash,token_name,token_id,contract_address,symbol,block_hash,block_number,method_id,from_address,to_address,amount,fees
-2025-08-01 20:49:19,base,metamask,laptop:wallet-3,0x4c7219b760b71b9415e0e01abd34d0f65631e57e,internal,IN,,0xa12037a1010d51a237ba093b51e38f027d7042dc67988b67afb44643f8c3e0e4,INTERNAL,,,ETH,,33646006,,0xd5c62357c673a477c6251034fc504a6f3404175b,0x4c7219b760b71b9415e0e01abd34d0f65631e57e,0.000002687343480984,
