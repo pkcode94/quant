@@ -75,8 +75,6 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             first = false;
             double sold = db.soldQuantityForParent(t.tradeId);
             bool isBuy = (t.type == TradeType::Buy);
-            double tpPrice = (isBuy && t.quantity > 0 && t.takeProfit > 0) ? t.takeProfit / t.quantity : 0;
-            double slPrice = (isBuy && t.quantity > 0 && t.stopLoss > 0) ? t.stopLoss / t.quantity : 0;
             j << "{\"id\":" << t.tradeId
               << ",\"symbol\":\"" << t.symbol << "\""
               << ",\"type\":\"" << (isBuy ? "Buy" : "Sell") << "\""
@@ -86,14 +84,6 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
               << ",\"remaining\":" << (t.quantity - sold)
               << ",\"buyFee\":" << t.buyFee
               << ",\"sellFee\":" << t.sellFee
-              << ",\"tp\":" << t.takeProfit
-              << ",\"tpFrac\":" << t.takeProfitFraction
-              << ",\"tpActive\":" << (t.takeProfitActive ? "true" : "false")
-              << ",\"sl\":" << t.stopLoss
-              << ",\"slFrac\":" << t.stopLossFraction
-              << ",\"tpPrice\":" << tpPrice
-              << ",\"slPrice\":" << slPrice
-              << ",\"slActive\":" << (t.stopLossActive ? "true" : "false")
               << ",\"parentId\":" << t.parentTradeId
               << ",\"timestamp\":" << t.timestamp
               << "}";
@@ -1196,16 +1186,24 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
         // Compute overhead for cycle 0 entry point
         auto plan0 = QuantMath::generateSerialPlan(sp);
 
-        // Determine TP for cycle 0 (the existing trade)
+        // Determine TP for cycle 0 (the existing trade) from exit points
         double tpPerUnit = 0;
-        if (trade->takeProfit > 0 && tradeQty > 0)
-            tpPerUnit = trade->takeProfit / tradeQty;
-        else if (!plan0.entries.empty())
+        double slPerUnit = 0;
+        {
+            auto xps = db.loadExitPointsForTrade(tradeId);
+            for (const auto& xp : xps)
+            {
+                if (!xp.executed && xp.tpPrice > 0) { tpPerUnit = xp.tpPrice; break; }
+            }
+            for (const auto& xp : xps)
+            {
+                if (!xp.executed && xp.slPrice > 0) { slPerUnit = xp.slPrice; break; }
+            }
+        }
+        if (tpPerUnit == 0 && !plan0.entries.empty())
             tpPerUnit = plan0.entries[0].tpUnit;
 
-        double slPerUnit = 0;
-        if (trade->stopLoss > 0 && tradeQty > 0)
-            slPerUnit = trade->stopLoss / tradeQty;
+        bool slActive = (slPerUnit > 0);
 
         // Find or create entry point for the trade
         auto allEntries = db.loadEntryPoints();
@@ -1228,8 +1226,8 @@ inline void registerApiRoutes(httplib::Server& svr, AppContext& ctx)
             ep.linkedTradeId = tradeId;
             ep.exitTakeProfit = tpPerUnit;
             ep.exitStopLoss = slPerUnit;
-            ep.stopLossActive = trade->stopLossActive;
-            ep.stopLossFraction = trade->stopLossFraction;
+            ep.stopLossActive = slActive;
+            ep.stopLossFraction = slActive ? 1.0 : 0.0;
             tradeEpId = ep.entryId;
             allEntries.push_back(ep);
         }

@@ -152,11 +152,7 @@ static void listTrades(TradeDatabase& db)
                   << "  " << t.symbol
                   << "  BUY"
                   << "  price=" << t.value
-                  << "  qty=" << t.quantity
-                  << "  TP=" << t.takeProfit
-                  << " [TP " << (t.takeProfitFraction * 100) << "%]"
-                  << "  SL=" << t.stopLoss
-                  << " [SL " << (t.stopLossFraction * 100) << "%]";
+                  << "  qty=" << t.quantity;
         if (sold > 0.0)
             std::cout << "  sold=" << sold
                       << "  remaining=" << remaining;
@@ -253,10 +249,6 @@ static void addTrade(TradeDatabase& db)
         t.symbol = parent->symbol;
     }
 
-    t.stopLossFraction = 0.0;
-    t.takeProfitFraction = 0.0;
-    t.stopLossActive = false;
-    t.takeProfitActive = false;
     t.shortEnabled   = false;
 
     db.addTrade(t);
@@ -314,12 +306,6 @@ static void editTrade(TradeDatabase& db)
         int pid = readInt("  Parent trade ID [" + std::to_string(tp->parentTradeId) + "] (-1=keep): ");
         if (pid >= 0) tp->parentTradeId = pid;
     }
-
-    v = readDouble("  Take profit [" + std::to_string(tp->takeProfit) + "]: ");
-    if (v != 0) tp->takeProfit = v;
-
-    v = readDouble("  Stop loss [" + std::to_string(tp->stopLoss) + "]: ");
-    if (v != 0) tp->stopLoss = v;
 
     db.updateTrade(*tp);
     std::cout << "  -> Trade #" << tp->tradeId << " updated.\n";
@@ -555,18 +541,7 @@ static void viewHorizons(TradeDatabase& db)
 
 static void toggleStopLoss(TradeDatabase& db)
 {
-    listTrades(db);
-    int id = readInt("  Trade ID: ");
-
-    auto trades = db.loadTrades();
-    auto* tp = db.findTradeById(trades, id);
-    if (!tp) { std::cout << "  Trade not found.\n"; return; }
-
-    tp->stopLossFraction = (tp->stopLossFraction > 0.0) ? 0.0 : 1.0;
-    tp->stopLossActive = (tp->stopLossFraction > 0.0);
-    db.updateTrade(*tp);
-    std::cout << "  -> SL is now " << (tp->stopLossActive ? "ON" : "OFF")
-              << " (fraction=" << tp->stopLossFraction << ")\n";
+    std::cout << "  Trade-level stop-loss removed. Use exit strategies instead.\n";
 }
 
 static void portfolioSummary(TradeDatabase& db)
@@ -782,17 +757,21 @@ static void marketEntry(TradeDatabase& db)
             entryPoints[i].traded        = true;
             entryPoints[i].linkedTradeId = bid;
 
-            auto trades = db.loadTrades();
-            auto* tradePtr = db.findTradeById(trades, bid);
-            if (tradePtr)
+            // Create exit point for this trade
+            if (entryPoints[i].exitTakeProfit > 0 || entryPoints[i].exitStopLoss > 0)
             {
-                tradePtr->takeProfit     = QuantMath::cost(entryPoints[i].exitTakeProfit, tradePtr->quantity);
-                tradePtr->takeProfitFraction = (entryPoints[i].exitTakeProfit > 0) ? 1.0 : 0.0;
-                tradePtr->takeProfitActive = (tradePtr->takeProfitFraction > 0.0);
-                tradePtr->stopLoss       = QuantMath::cost(entryPoints[i].exitStopLoss, tradePtr->quantity);
-                tradePtr->stopLossFraction = 0.0;
-                tradePtr->stopLossActive = false;
-                db.updateTrade(*tradePtr);
+                auto exits = db.loadExitPoints();
+                TradeDatabase::ExitPoint xp;
+                xp.exitId    = db.nextExitId();
+                xp.tradeId   = bid;
+                xp.symbol    = sym;
+                xp.levelIndex = 0;
+                xp.tpPrice   = entryPoints[i].exitTakeProfit;
+                xp.slPrice   = entryPoints[i].exitStopLoss;
+                xp.sellQty   = buyQty;
+                xp.slActive  = (entryPoints[i].exitStopLoss > 0);
+                exits.push_back(xp);
+                db.saveExitPoints(exits);
             }
 
             std::cout << "    -> Buy #" << bid
@@ -1139,26 +1118,6 @@ static void priceCheck(TradeDatabase& db)
         auto r = ProfitCalculator::calculate(t, cur, buyFees, sellFees);
 
         std::cout << "    net=" << r.netProfit << "  ROI=" << r.roi << "%";
-
-        // trade-level TP/SL
-        if (t.takeProfitActive && t.takeProfit > 0.0 && t.quantity > 0.0)
-        {
-            double tpPrice = t.takeProfit / t.quantity;
-            if (cur >= tpPrice)
-            {
-                std::cout << "  ** TP HIT (" << tpPrice << ") **";
-                triggers.push_back({t.tradeId, t.symbol, cur, remaining * t.takeProfitFraction, "TP"});
-            }
-        }
-        if (t.stopLossActive && t.stopLoss > 0.0 && t.quantity > 0.0)
-        {
-            double slPrice = t.stopLoss / t.quantity;
-            if (cur <= slPrice)
-            {
-                std::cout << "  !! SL BREACHED (" << slPrice << ") !!";
-                triggers.push_back({t.tradeId, t.symbol, cur, remaining * t.stopLossFraction, "SL"});
-            }
-        }
         std::cout << '\n';
 
         // horizon levels
@@ -1526,12 +1485,6 @@ static void duplicateTrade(TradeDatabase& db)
 
     Trade t = *src;
     t.tradeId      = db.nextTradeId();
-    t.takeProfit   = 0.0;
-    t.stopLoss     = 0.0;
-    t.takeProfitFraction = 0.0;
-    t.stopLossFraction   = 0.0;
-    t.takeProfitActive = false;
-    t.stopLossActive = false;
 
     db.addTrade(t);
     std::cout << "  -> Duplicated as trade #" << t.tradeId
@@ -1749,17 +1702,21 @@ static void markEntryTraded(TradeDatabase& db)
         int tid = db.executeBuy(target->symbol, target->entryPrice, target->fundingQty);
         target->linkedTradeId = tid;
 
-        auto trades = db.loadTrades();
-        auto* tp = db.findTradeById(trades, tid);
-        if (tp)
+        // Create exit point for this trade
+        if (target->exitTakeProfit > 0 || target->exitStopLoss > 0)
         {
-            tp->takeProfit     = target->exitTakeProfit * tp->quantity;
-            tp->takeProfitFraction = 1.0;
-            tp->takeProfitActive = true;
-            tp->stopLoss       = target->exitStopLoss * tp->quantity;
-            tp->stopLossFraction = target->stopLossActive ? 1.0 : 0.0;
-            tp->stopLossActive = target->stopLossActive;
-            db.updateTrade(*tp);
+            auto exits = db.loadExitPoints();
+            TradeDatabase::ExitPoint xp;
+            xp.exitId    = db.nextExitId();
+            xp.tradeId   = tid;
+            xp.symbol    = target->symbol;
+            xp.levelIndex = 0;
+            xp.tpPrice   = target->exitTakeProfit;
+            xp.slPrice   = target->exitStopLoss;
+            xp.sellQty   = target->fundingQty;
+            xp.slActive  = target->stopLossActive;
+            exits.push_back(xp);
+            db.saveExitPoints(exits);
         }
         std::cout << "  -> Trade #" << tid << " created. Wallet debited.\n";
     }
@@ -2161,8 +2118,6 @@ static void executeBuySell(TradeDatabase& db)
         double price = readDouble("  Price: ");
         double qty   = readDouble("  Quantity: ");
         double fee   = readDouble("  Buy fee: ");
-        double tp    = readDouble("  Take profit (per unit, 0=none): ");
-        double sl    = readDouble("  Stop loss (per unit, 0=none): ");
 
         double cost = QuantMath::cost(price, qty) + fee;
         if (cost > walBal)
@@ -2171,10 +2126,11 @@ static void executeBuySell(TradeDatabase& db)
             return;
         }
 
-        int tid = db.executeBuy(sym, price, qty, fee, tp * qty, sl * qty);
+        int tid = db.executeBuy(sym, price, qty, fee);
         std::cout << "  -> Buy #" << tid << "  " << qty << " @ " << price
                   << "  fee=" << fee << "  cost=" << cost
                   << "  balance=" << db.loadWalletBalance() << "\n";
+        std::cout << "  Add exit strategies via menu option 31 or the web UI.\n";
     }
     else if (action == 2)
     {
@@ -2199,7 +2155,7 @@ static void executeBuySell(TradeDatabase& db)
     }
 }
 
-// ---- Set TP/SL directly ----
+// ---- Add exit strategy ----
 
 static void setTpSl(TradeDatabase& db)
 {
@@ -2209,35 +2165,55 @@ static void setTpSl(TradeDatabase& db)
     auto trades = db.loadTrades();
     auto* tp = db.findTradeById(trades, id);
     if (!tp) { std::cout << "  Trade not found.\n"; return; }
+    if (tp->type != TradeType::Buy) { std::cout << "  Only Buy trades support exit strategies.\n"; return; }
+
+    double remaining = tp->quantity - db.soldQuantityForParent(tp->tradeId);
+    if (remaining <= 0) { std::cout << "  No remaining quantity.\n"; return; }
+
+    // Show existing exit points
+    auto exits = db.loadExitPoints();
+    int existingCount = 0;
+    for (const auto& xp : exits)
+        if (xp.tradeId == id && !xp.executed) ++existingCount;
+    if (existingCount > 0)
+    {
+        std::cout << "  Existing exit points:\n";
+        for (const auto& xp : exits)
+        {
+            if (xp.tradeId != id) continue;
+            std::cout << "    X[" << xp.levelIndex << "]  TP=" << xp.tpPrice
+                      << "  SL=" << xp.slPrice << "  qty=" << xp.sellQty
+                      << "  " << (xp.executed ? "DONE" : (xp.slActive ? "SL:ON" : "SL:OFF")) << "\n";
+        }
+    }
 
     std::cout << std::fixed << std::setprecision(2);
-    std::cout << "  Current: TP=" << tp->takeProfit
-              << " [TP " << (tp->takeProfitFraction * 100) << "%]"
-              << "  SL=" << tp->stopLoss
-              << " [SL " << (tp->stopLossFraction * 100) << "%]" << "\n";
+    std::cout << "  Remaining qty: " << remaining << "\n";
+    double tpPrice = readDouble("  TP price (per unit): ");
+    double slPrice = readDouble("  SL price (per unit, 0=none): ");
+    double sellQty = readDouble("  Sell quantity (0=all remaining): ");
+    if (sellQty <= 0) sellQty = remaining;
+    int slOn = (slPrice > 0) ? readInt("  Activate SL? (1=yes, 0=no): ") : 0;
 
-    int what = readInt("  1=Set TP  2=Set SL  3=Set both: ");
-    if (what == 1 || what == 3)
-    {
-        double newTp = readDouble("  New TP (total, or per-unit * qty): ");
-        tp->takeProfit = newTp;
-        double frac = readDouble("  TP fraction (0=off, 0.5=50%, 1=100%): ");
-        tp->takeProfitFraction = (frac < 0) ? 0 : (frac > 1) ? 1 : frac;
-        tp->takeProfitActive = (tp->takeProfitFraction > 0.0);
-    }
-    if (what == 2 || what == 3)
-    {
-        double newSl = readDouble("  New SL (total, or per-unit * qty): ");
-        tp->stopLoss = newSl;
-        double frac = readDouble("  SL fraction (0=off, 0.5=50%, 1=100%): ");
-        tp->stopLossFraction = (frac < 0) ? 0 : (frac > 1) ? 1 : frac;
-        tp->stopLossActive = (tp->stopLossFraction > 0.0);
-    }
-    db.updateTrade(*tp);
-    std::cout << "  -> Updated: TP=" << tp->takeProfit
-              << " [TP " << (tp->takeProfitFraction * 100) << "%]"
-              << "  SL=" << tp->stopLoss
-              << " [SL " << (tp->stopLossFraction * 100) << "%]" << "\n";
+    // Determine next level index
+    int maxIdx = -1;
+    for (const auto& xp : exits)
+        if (xp.tradeId == id && xp.levelIndex > maxIdx) maxIdx = xp.levelIndex;
+
+    TradeDatabase::ExitPoint xp;
+    xp.exitId    = db.nextExitId();
+    xp.tradeId   = id;
+    xp.symbol    = tp->symbol;
+    xp.levelIndex = maxIdx + 1;
+    xp.tpPrice   = tpPrice;
+    xp.slPrice   = slPrice;
+    xp.sellQty   = sellQty;
+    xp.slActive  = (slOn == 1);
+    exits.push_back(xp);
+    db.saveExitPoints(exits);
+
+    std::cout << "  -> Exit X[" << xp.levelIndex << "] added: TP=" << tpPrice
+              << " SL=" << slPrice << " qty=" << sellQty << "\n";
 }
 
 // ---- Deallocate holdings ----
@@ -2498,17 +2474,21 @@ static void executeTriggeredEntries(TradeDatabase& db)
         ep->traded = true;
         ep->linkedTradeId = bid;
 
-        auto trades = db.loadTrades();
-        auto* tradePtr = db.findTradeById(trades, bid);
-        if (tradePtr)
+        // Create exit point for this trade
+        if (ep->exitTakeProfit > 0 || ep->exitStopLoss > 0)
         {
-            tradePtr->takeProfit = ep->exitTakeProfit * tradePtr->quantity;
-            tradePtr->takeProfitFraction = (ep->exitTakeProfit > 0) ? 1.0 : 0.0;
-            tradePtr->takeProfitActive = (tradePtr->takeProfitFraction > 0.0);
-            tradePtr->stopLoss = ep->exitStopLoss * tradePtr->quantity;
-            tradePtr->stopLossFraction = 0.0;
-            tradePtr->stopLossActive = false;
-            db.updateTrade(*tradePtr);
+            auto exits = db.loadExitPoints();
+            TradeDatabase::ExitPoint xp;
+            xp.exitId    = db.nextExitId();
+            xp.tradeId   = bid;
+            xp.symbol    = ep->symbol;
+            xp.levelIndex = 0;
+            xp.tpPrice   = ep->exitTakeProfit;
+            xp.slPrice   = ep->exitStopLoss;
+            xp.sellQty   = ep->fundingQty;
+            xp.slActive  = (ep->exitStopLoss > 0);
+            exits.push_back(xp);
+            db.saveExitPoints(exits);
         }
         std::cout << "    -> Buy #" << bid << "  " << ep->fundingQty
                   << " @ " << ep->entryPrice << "\n";
@@ -2638,7 +2618,13 @@ int main()
     // Start HTTP API on a background thread
     int httpPort = 8080;
     std::thread httpThread([&]() {
-        startHttpApi(db, httpPort, dbMutex);
+        try {
+            startHttpApi(db, httpPort, dbMutex);
+        } catch (const std::exception& e) {
+            std::cerr << "  [HTTP] FATAL: " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "  [HTTP] FATAL: unknown exception" << std::endl;
+        }
         });
     httpThread.detach();
 
@@ -2679,7 +2665,7 @@ int main()
         std::cout << "  28) P&L ledger\n";
         std::cout << "  29) Parameter models\n";
         std::cout << "  30) Execute buy/sell\n";
-        std::cout << "  31) Set TP/SL\n";
+        std::cout << "  31) Add exit strategy\n";
         std::cout << "  32) Deallocate holdings\n";
         std::cout << "  33) Chain advance\n";
         std::cout << "  34) Chain reset\n";

@@ -48,6 +48,16 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
 
     httplib::Server svr;
 
+    // Error handler for unhandled exceptions in route handlers
+    svr.set_exception_handler([](const httplib::Request& req, httplib::Response& res, std::exception_ptr ep) {
+        try { if (ep) std::rethrow_exception(ep); }
+        catch (const std::exception& e) {
+            std::cerr << "  [HTTP] exception on " << req.path << ": " << e.what() << std::endl;
+            res.set_content("<h1>500 Internal Server Error</h1><pre>" + std::string(e.what()) + "</pre>", "text/html");
+            res.status = 500;
+        }
+    });
+
     // Auth middleware — allow login/register/logout without session
     svr.set_pre_routing_handler([&](const httplib::Request& req, httplib::Response& res) {
         if (req.path == "/login" || req.path == "/register" || req.path == "/logout")
@@ -78,5 +88,9 @@ inline void startHttpApi(TradeDatabase& db, int port, std::mutex& dbMutex)
     registerSymbolRoutes(svr, ctx);
 
     std::cout << "  [HTTP] listening on http://localhost:" << port << "\n";
-    svr.listen("0.0.0.0", port);
+    if (!svr.listen("0.0.0.0", port))
+    {
+        std::cerr << "  [HTTP] ERROR: failed to bind to port " << port
+                  << " (already in use?)\n";
+    }
 }

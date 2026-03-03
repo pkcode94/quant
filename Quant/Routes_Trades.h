@@ -251,10 +251,6 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
         t.type = (fv(f, "type") == "CoveredSell") ? TradeType::CoveredSell : TradeType::Buy;
         t.value = fd(f, "price");
         t.quantity = fd(f, "quantity");
-        t.stopLossFraction = 0.0;
-        t.takeProfitFraction = 0.0;
-        t.stopLossActive = false;
-        t.takeProfitActive = false;
         t.shortEnabled = false;
         t.timestamp = html::parseDatetimeLocal(fv(f, "timestamp"));
         if (t.timestamp <= 0) t.timestamp = static_cast<long long>(std::time(nullptr));
@@ -264,8 +260,6 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
             t.parentTradeId = -1;
             t.buyFee = fd(f, "buyFee");
             t.sellFee = 0.0;
-            t.takeProfit = 0.0;
-            t.stopLoss = 0.0;
         }
         else
         {
@@ -294,21 +288,6 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
         if (!db.findTradeById(trades, id)) { res.set_redirect("/trades?err=Trade+not+found", 303); return; }
         db.removeTrade(id);
         res.set_redirect("/trades?msg=Trade+" + std::to_string(id) + "+deleted", 303);
-    });
-
-    // ========== POST /toggle-sl ==========
-    svr.Post("/toggle-sl", [&](const httplib::Request& req, httplib::Response& res) {
-        std::lock_guard<std::mutex> lk(dbMutex);
-        auto f = parseForm(req.body);
-        int id = fi(f, "id");
-        auto trades = db.loadTrades();
-        auto* tp = db.findTradeById(trades, id);
-        if (!tp) { res.set_redirect("/trades?err=Trade+not+found", 303); return; }
-        tp->stopLossFraction = (tp->stopLossFraction > 0.0) ? 0.0 : 1.0;
-        tp->stopLossActive = (tp->stopLossFraction > 0.0);
-        db.updateTrade(*tp);
-        std::string state = tp->stopLossActive ? "ON" : "OFF";
-        res.set_redirect("/trades?msg=SL+now+" + state + "+for+" + std::to_string(id), 303);
     });
 
     // ========== POST /set-horizon-tp ==========
@@ -472,7 +451,7 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
         double walBal = db.loadWalletBalance();
         double needed = price * qty + fee;
         if (needed > walBal) { res.set_redirect("/trades?err=Insufficient+funds", 303); return; }
-        int bid = db.executeBuy(sym, price, qty, fee, 0, 0);
+        int bid = db.executeBuy(sym, price, qty, fee);
         if (ts > 0)
         {
             auto trades = db.loadTrades();
@@ -537,12 +516,7 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
                  "<div style='color:#64748b;font-size:0.78em;'>-1 = none (for Buy trades)</div><br>"
                  "<label>Buy Fee</label><input type='number' name='buyFee' step='any' value='" << tp->buyFee << "'><br>"
                  "<label>Sell Fee</label><input type='number' name='sellFee' step='any' value='" << tp->sellFee << "'><br>"
-                 "<label>Take Profit</label><input type='number' name='takeProfit' step='any' value='" << tp->takeProfit << "'><br>"
-                 "<label>TP Fraction</label><input type='number' name='takeProfitFraction' step='0.01' min='0' max='1' value='" << tp->takeProfitFraction << "'>"
-                 "<span style='color:#64748b;font-size:0.78em;margin-left:8px;'>0 = off, 0.5 = sell 50%, 1 = sell 100%</span><br>"
-                 "<label>Stop Loss</label><input type='number' name='stopLoss' step='any' value='" << tp->stopLoss << "'><br>"
-                 "<label>SL Fraction</label><input type='number' name='stopLossFraction' step='0.01' min='0' max='1' value='" << tp->stopLossFraction << "'>"
-                 "<span style='color:#64748b;font-size:0.78em;margin-left:8px;'>0 = off, 0.5 = sell 50%, 1 = sell 100%</span><br>"
+                 "<div style='color:#64748b;font-size:0.78em;margin-top:6px;'>Manage TP/SL via exit strategies on the Trades page</div>"
                  "<br><button>Save Changes</button></form>";
         }
         h << "<br><a class='btn' href='/trades'>Back to Trades</a>";
@@ -585,16 +559,6 @@ inline void registerTradeRoutes(httplib::Server& svr, AppContext& ctx)
         }
         tp->buyFee = fd(f, "buyFee", tp->buyFee);
         tp->sellFee = fd(f, "sellFee", tp->sellFee);
-        tp->takeProfit = fd(f, "takeProfit", tp->takeProfit);
-        tp->takeProfitFraction = fd(f, "takeProfitFraction", tp->takeProfitFraction);
-        if (tp->takeProfitFraction < 0) tp->takeProfitFraction = 0;
-        if (tp->takeProfitFraction > 1) tp->takeProfitFraction = 1;
-        tp->takeProfitActive = (tp->takeProfitFraction > 0.0);
-        tp->stopLoss = fd(f, "stopLoss", tp->stopLoss);
-        tp->stopLossFraction = fd(f, "stopLossFraction", tp->stopLossFraction);
-        if (tp->stopLossFraction < 0) tp->stopLossFraction = 0;
-        if (tp->stopLossFraction > 1) tp->stopLossFraction = 1;
-        tp->stopLossActive = (tp->stopLossFraction > 0.0);
         auto tsStr = fv(f, "timestamp");
         if (!tsStr.empty()) tp->timestamp = html::parseDatetimeLocal(tsStr);
         db.updateTrade(*tp);

@@ -399,20 +399,24 @@ inline void registerEntryRoutes(httplib::Server& svr, AppContext& ctx)
         }
         if (executed > 0)
         {
-            auto trades = db.loadTrades();
+            // Create exit points for each executed entry
+            auto exits = db.loadExitPoints();
             for (const auto& ep : entryPts)
             {
                 if (ep.linkedTradeId < 0) continue;
-                auto* tradePtr = db.findTradeById(trades, ep.linkedTradeId);
-                if (!tradePtr) continue;
-                tradePtr->takeProfit = QuantMath::cost(ep.exitTakeProfit, tradePtr->quantity);
-                tradePtr->takeProfitFraction = (ep.exitTakeProfit > 0) ? 1.0 : 0.0;
-                tradePtr->takeProfitActive = (tradePtr->takeProfitFraction > 0.0);
-                tradePtr->stopLoss = QuantMath::cost(ep.exitStopLoss, tradePtr->quantity);
-                tradePtr->stopLossFraction = 0.0;
-                tradePtr->stopLossActive = false;
-                db.updateTrade(*tradePtr);
+                if (ep.exitTakeProfit <= 0 && ep.exitStopLoss <= 0) continue;
+                TradeDatabase::ExitPoint xp;
+                xp.exitId    = db.nextExitId();
+                xp.tradeId   = ep.linkedTradeId;
+                xp.symbol    = ep.symbol;
+                xp.levelIndex = ep.levelIndex;
+                xp.tpPrice   = ep.exitTakeProfit;
+                xp.slPrice   = ep.exitStopLoss;
+                xp.sellQty   = ep.fundingQty;
+                xp.slActive  = (ep.exitStopLoss > 0);
+                exits.push_back(xp);
             }
+            db.saveExitPoints(exits);
         }
         db.saveEntryPoints(entryPts);
         if (failed > 0)

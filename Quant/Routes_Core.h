@@ -62,7 +62,7 @@ inline void registerCoreRoutes(httplib::Server& svr, AppContext& ctx)
 
             h << "<h2>Trades</h2><table><tr>"
                  "<th>ID</th><th>Symbol</th><th>Type</th><th>Price</th><th>Qty</th>"
-                 "<th>Cost</th><th>Fees</th><th>TP</th><th>SL</th><th>SL?</th>"
+                 "<th>Cost</th><th>Fees</th><th>Exits</th>"
                  "<th>Sold</th><th>Rem</th><th>Realized</th>"
                  "</tr>";
 
@@ -85,6 +85,11 @@ inline void registerCoreRoutes(httplib::Server& svr, AppContext& ctx)
                     }
                 }
 
+                auto exitPts = db.loadExitPointsForTrade(b.tradeId);
+                int activeExits = 0;
+                for (const auto& xp : exitPts)
+                    if (!xp.executed) ++activeExits;
+
                 h << "<tr>"
                   << "<td><strong>" << b.tradeId << "</strong></td>"
                   << "<td><strong>" << html::esc(b.symbol) << "</strong></td>"
@@ -92,9 +97,7 @@ inline void registerCoreRoutes(httplib::Server& svr, AppContext& ctx)
                   << "<td>" << b.value << "</td><td>" << b.quantity << "</td>"
                   << "<td>" << grossCost << "</td>"
                   << "<td>" << totalFees << "</td>"
-                  << "<td>" << b.takeProfit << "</td><td>" << b.stopLoss << "</td>"
-                  << "<td class='" << (b.stopLossActive ? "on" : "off") << "'>"
-                  << (b.stopLossActive ? "ON" : "OFF") << "</td>"
+                  << "<td>" << activeExits << "</td>"
                   << "<td>" << sold << "</td><td>" << remaining << "</td>"
                   << "<td class='" << (realized >= 0 ? "buy" : "sell") << "'>" << realized << "</td>"
                   << "</tr>";
@@ -110,7 +113,7 @@ inline void registerCoreRoutes(httplib::Server& svr, AppContext& ctx)
                       << "<td>" << c.value << "</td><td>" << c.quantity << "</td>"
                       << "<td>" << (c.value * c.quantity) << "</td>"
                       << "<td>" << c.sellFee << "</td>"
-                      << "<td>-</td><td>-</td><td>-</td>"
+                      << "<td>-</td>"
                       << "<td>-</td><td>-</td>"
                       << "<td class='" << (profit.netProfit >= 0 ? "buy" : "sell") << "'>"
                       << profit.netProfit << "</td></tr>";

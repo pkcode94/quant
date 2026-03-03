@@ -87,16 +87,12 @@ inline void registerPriceCheckRoutes(httplib::Server& svr, AppContext& ctx)
             double gross = pnl.gross;
             double net   = pnl.net;
             double roi   = pnl.roiPct;
-            double tpPrice = 0, slPrice = 0;
-            bool tpHit = false, slHit = false;
-            if (t.takeProfitActive && t.takeProfit > 0) { tpPrice = t.takeProfit / t.quantity; tpHit = (cur >= tpPrice); }
-            if (t.stopLossActive && t.stopLoss > 0) { slPrice = t.stopLoss / t.quantity; slHit = (cur <= slPrice); }
             h << "<tr><td>" << t.tradeId << "</td><td>" << html::esc(t.symbol) << "</td><td>" << t.value << "</td><td>" << remaining << "</td>"
               << "<td>" << cur << "</td><td class='" << (gross >= 0 ? "buy" : "sell") << "'>" << gross << "</td>"
               << "<td class='" << (net >= 0 ? "buy" : "sell") << "'>" << net << "</td>"
               << "<td class='" << (roi >= 0 ? "buy" : "sell") << "'>" << roi << "</td>"
-              << "<td>" << tpPrice << "</td><td class='" << (tpHit ? "buy" : "off") << "'>" << (tpHit ? "HIT" : "-") << "</td>"
-              << "<td>" << slPrice << "</td><td class='" << (slHit ? "sell" : "off") << "'>" << (slHit ? "BREACHED" : "-") << "</td></tr>";
+              << "<td>-</td><td>-</td>"
+              << "<td>-</td><td>-</td></tr>";
             auto levels = db.loadHorizonLevels(t.symbol, t.tradeId);
             for (const auto& lv : levels)
             {
@@ -112,17 +108,8 @@ inline void registerPriceCheckRoutes(httplib::Server& svr, AppContext& ctx)
                 else h << "-";
                 h << "</td></tr>";
             }
-            // Trade-level TP/SL triggers (only if no exit points exist for this trade)
-            auto exitPts = db.loadExitPointsForTrade(t.tradeId);
-            bool hasActiveExits = false;
-            for (const auto& xp : exitPts)
-                if (!xp.executed) { hasActiveExits = true; break; }
-            if (!hasActiveExits)
-            {
-                if (tpHit) triggers.push_back({t.tradeId, t.symbol, cur, remaining * t.takeProfitFraction, "TP", t.value, t.buyFee, t.quantity, -1});
-                if (slHit) triggers.push_back({t.tradeId, t.symbol, cur, remaining * t.stopLossFraction, "SL", t.value, t.buyFee, t.quantity, -1});
-            }
             // Exit-point triggers: check saved exit points for this trade
+            auto exitPts = db.loadExitPointsForTrade(t.tradeId);
             for (const auto& xp : exitPts)
             {
                 if (xp.executed) continue;
